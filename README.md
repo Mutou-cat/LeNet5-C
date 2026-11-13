@@ -41,7 +41,7 @@ make
 卷积 8×8×12 → 平均池化 4×4×12 → 全连接 10 类。
 
 旧的 `cnn - 副本` 是与现有接口不兼容、未参与原项目构建的历史草稿，已移除；
-旧 VS 工程和已提交的 Windows 编译产物保留供参考，当前构建使用根目录 Makefile。
+旧 VS 工程、缓存及 Windows 编译产物已清理，当前构建使用根目录 Makefile。
 代码与中文注释采用 UTF-8。
 
 原项目教程：http://blog.csdn.net/tostq/article/details/51786265
