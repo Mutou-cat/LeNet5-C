@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <random>
+#include <stdbool.h>
 #include <time.h>
 #include "mat.h"
 #include "minst.h"
@@ -14,64 +14,64 @@
 #define MaxPool 1
 #define MinPool 2
 
-// ¾í»ı²ã
+// å·ç§¯å±‚
 typedef struct convolutional_layer{
-	int inputWidth;   //ÊäÈëÍ¼ÏñµÄ¿í
-	int inputHeight;  //ÊäÈëÍ¼ÏñµÄ³¤
-	int mapSize;      //ÌØÕ÷Ä£°åµÄ´óĞ¡£¬Ä£°åÒ»°ã¶¼ÊÇÕı·½ĞÎ
+	int inputWidth;   //è¾“å…¥å›¾åƒçš„å®½
+	int inputHeight;  //è¾“å…¥å›¾åƒçš„é•¿
+	int mapSize;      //ç‰¹å¾æ¨¡æ¿çš„å¤§å°ï¼Œæ¨¡æ¿ä¸€èˆ¬éƒ½æ˜¯æ­£æ–¹å½¢
 
-	int inChannels;   //ÊäÈëÍ¼ÏñµÄÊıÄ¿
-	int outChannels;  //Êä³öÍ¼ÏñµÄÊıÄ¿
+	int inChannels;   //è¾“å…¥å›¾åƒçš„æ•°ç›®
+	int outChannels;  //è¾“å‡ºå›¾åƒçš„æ•°ç›®
 
-	// ¹ØÓÚÌØÕ÷Ä£°åµÄÈ¨ÖØ·Ö²¼£¬ÕâÀïÊÇÒ»¸öËÄÎ¬Êı×é
-	// Æä´óĞ¡ÎªinChannels*outChannels*mapSize*mapSize´óĞ¡
-	// ÕâÀïÓÃËÄÎ¬Êı×é£¬Ö÷ÒªÊÇÎªÁË±íÏÖÈ«Á¬½ÓµÄĞÎÊ½£¬Êµ¼ÊÉÏ¾í»ı²ã²¢Ã»ÓĞÓÃµ½È«Á¬½ÓµÄĞÎÊ½
-	// ÕâÀïµÄÀı×ÓÊÇDeapLearningToolbooxÀïµÄCNNÀı×Ó£¬ÆäÓÃµ½¾ÍÊÇÈ«Á¬½Ó
-	float**** mapData;     //´æ·ÅÌØÕ÷Ä£¿éµÄÊı¾İ
-	float**** dmapData;    //´æ·ÅÌØÕ÷Ä£¿éµÄÊı¾İµÄ¾Ö²¿Ìİ¶È
+	// å…³äºç‰¹å¾æ¨¡æ¿çš„æƒé‡åˆ†å¸ƒï¼Œè¿™é‡Œæ˜¯ä¸€ä¸ªå››ç»´æ•°ç»„
+	// å…¶å¤§å°ä¸ºinChannels*outChannels*mapSize*mapSizeå¤§å°
+	// è¿™é‡Œç”¨å››ç»´æ•°ç»„ï¼Œä¸»è¦æ˜¯ä¸ºäº†è¡¨ç°å…¨è¿æ¥çš„å½¢å¼ï¼Œå®é™…ä¸Šå·ç§¯å±‚å¹¶æ²¡æœ‰ç”¨åˆ°å…¨è¿æ¥çš„å½¢å¼
+	// è¿™é‡Œçš„ä¾‹å­æ˜¯DeapLearningToolbooxé‡Œçš„CNNä¾‹å­ï¼Œå…¶ç”¨åˆ°å°±æ˜¯å…¨è¿æ¥
+	float**** mapData;     //å­˜æ”¾ç‰¹å¾æ¨¡å—çš„æ•°æ®
+	float**** dmapData;    //å­˜æ”¾ç‰¹å¾æ¨¡å—çš„æ•°æ®çš„å±€éƒ¨æ¢¯åº¦
 
-	float* basicData;   //Æ«ÖÃ£¬Æ«ÖÃµÄ´óĞ¡£¬ÎªoutChannels
-	bool isFullConnect; //ÊÇ·ñÎªÈ«Á¬½Ó
-	bool* connectModel; //Á¬½ÓÄ£Ê½£¨Ä¬ÈÏÎªÈ«Á¬½Ó£©
+	float* basicData;   //åç½®ï¼Œåç½®çš„å¤§å°ï¼Œä¸ºoutChannels
+	bool isFullConnect; //æ˜¯å¦ä¸ºå…¨è¿æ¥
+	bool* connectModel; //è¿æ¥æ¨¡å¼ï¼ˆé»˜è®¤ä¸ºå…¨è¿æ¥ï¼‰
 
-	// ÏÂÃæÈıÕßµÄ´óĞ¡Í¬Êä³öµÄÎ¬¶ÈÏàÍ¬
-	float*** v; // ½øÈë¼¤»îº¯ÊıµÄÊäÈëÖµ
-	float*** y; // ¼¤»îº¯ÊıºóÉñ¾­ÔªµÄÊä³ö
+	// ä¸‹é¢ä¸‰è€…çš„å¤§å°åŒè¾“å‡ºçš„ç»´åº¦ç›¸åŒ
+	float*** v; // è¿›å…¥æ¿€æ´»å‡½æ•°çš„è¾“å…¥å€¼
+	float*** y; // æ¿€æ´»å‡½æ•°åç¥ç»å…ƒçš„è¾“å‡º
 
-	// Êä³öÏñËØµÄ¾Ö²¿Ìİ¶È
-	float*** d; // ÍøÂçµÄ¾Ö²¿Ìİ¶È,¦ÄÖµ  
+	// è¾“å‡ºåƒç´ çš„å±€éƒ¨æ¢¯åº¦
+	float*** d; // ç½‘ç»œçš„å±€éƒ¨æ¢¯åº¦,Î´å€¼
 }CovLayer;
 
-// ²ÉÑù²ã pooling
+// é‡‡æ ·å±‚ pooling
 typedef struct pooling_layer{
-	int inputWidth;   //ÊäÈëÍ¼ÏñµÄ¿í
-	int inputHeight;  //ÊäÈëÍ¼ÏñµÄ³¤
-	int mapSize;      //ÌØÕ÷Ä£°åµÄ´óĞ¡
+	int inputWidth;   //è¾“å…¥å›¾åƒçš„å®½
+	int inputHeight;  //è¾“å…¥å›¾åƒçš„é•¿
+	int mapSize;      //ç‰¹å¾æ¨¡æ¿çš„å¤§å°
 
-	int inChannels;   //ÊäÈëÍ¼ÏñµÄÊıÄ¿
-	int outChannels;  //Êä³öÍ¼ÏñµÄÊıÄ¿
+	int inChannels;   //è¾“å…¥å›¾åƒçš„æ•°ç›®
+	int outChannels;  //è¾“å‡ºå›¾åƒçš„æ•°ç›®
 
-	int poolType;     //PoolingµÄ·½·¨
-	float* basicData;   //Æ«ÖÃ
+	int poolType;     //Poolingçš„æ–¹æ³•
+	float* basicData;   //åç½®
 
-	float*** y; // ²ÉÑùº¯ÊıºóÉñ¾­ÔªµÄÊä³ö,ÎŞ¼¤»îº¯Êı
-	float*** d; // ÍøÂçµÄ¾Ö²¿Ìİ¶È,¦ÄÖµ
+	float*** y; // é‡‡æ ·å‡½æ•°åç¥ç»å…ƒçš„è¾“å‡º,æ— æ¿€æ´»å‡½æ•°
+	float*** d; // ç½‘ç»œçš„å±€éƒ¨æ¢¯åº¦,Î´å€¼
 }PoolLayer;
 
-// Êä³ö²ã È«Á¬½ÓµÄÉñ¾­ÍøÂç
+// è¾“å‡ºå±‚ å…¨è¿æ¥çš„ç¥ç»ç½‘ç»œ
 typedef struct nn_layer{
-	int inputNum;   //ÊäÈëÊı¾İµÄÊıÄ¿
-	int outputNum;  //Êä³öÊı¾İµÄÊıÄ¿
+	int inputNum;   //è¾“å…¥æ•°æ®çš„æ•°ç›®
+	int outputNum;  //è¾“å‡ºæ•°æ®çš„æ•°ç›®
 
-	float** wData; // È¨ÖØÊı¾İ£¬ÎªÒ»¸öinputNum*outputNum´óĞ¡
-	float* basicData;   //Æ«ÖÃ£¬´óĞ¡ÎªoutputNum´óĞ¡
+	float** wData; // æƒé‡æ•°æ®ï¼Œä¸ºä¸€ä¸ªinputNum*outputNumå¤§å°
+	float* basicData;   //åç½®ï¼Œå¤§å°ä¸ºoutputNumå¤§å°
 
-	// ÏÂÃæÈıÕßµÄ´óĞ¡Í¬Êä³öµÄÎ¬¶ÈÏàÍ¬
-	float* v; // ½øÈë¼¤»îº¯ÊıµÄÊäÈëÖµ
-	float* y; // ¼¤»îº¯ÊıºóÉñ¾­ÔªµÄÊä³ö
-	float* d; // ÍøÂçµÄ¾Ö²¿Ìİ¶È,¦ÄÖµ
+	// ä¸‹é¢ä¸‰è€…çš„å¤§å°åŒè¾“å‡ºçš„ç»´åº¦ç›¸åŒ
+	float* v; // è¿›å…¥æ¿€æ´»å‡½æ•°çš„è¾“å…¥å€¼
+	float* y; // æ¿€æ´»å‡½æ•°åç¥ç»å…ƒçš„è¾“å‡º
+	float* d; // ç½‘ç»œçš„å±€éƒ¨æ¢¯åº¦,Î´å€¼
 
-	bool isFullConnect; //ÊÇ·ñÎªÈ«Á¬½Ó
+	bool isFullConnect; //æ˜¯å¦ä¸ºå…¨è¿æ¥
 }OutLayer;
 
 typedef struct cnn_network{
@@ -82,60 +82,60 @@ typedef struct cnn_network{
 	PoolLayer* S4;
 	OutLayer* O5;
 
-	float* e; // ÑµÁ·Îó²î
-	float* L; // Ë²Ê±Îó²îÄÜÁ¿
+	float* e; // è®­ç»ƒè¯¯å·®
+	float* L; // ç¬æ—¶è¯¯å·®èƒ½é‡
 }CNN;
 
 typedef struct train_opts{
-	int numepochs; // ÑµÁ·µÄµü´ú´ÎÊı
-	float alpha; // Ñ§Ï°ËÙÂÊ
+	int numepochs; // è®­ç»ƒçš„è¿­ä»£æ¬¡æ•°
+	float alpha; // å­¦ä¹ é€Ÿç‡
 }CNNOpts;
 
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize);
-/*	
-	CNNÍøÂçµÄÑµÁ·º¯Êı
-	inputData£¬outputData·Ö±ğ´æÈëÑµÁ·Êı¾İ
-	dataNum±íÃ÷Êı¾İÊıÄ¿
+/*
+	CNNç½‘ç»œçš„è®­ç»ƒå‡½æ•°
+	inputDataï¼ŒoutputDataåˆ†åˆ«å­˜å…¥è®­ç»ƒæ•°æ®
+	dataNumè¡¨æ˜æ•°æ®æ•°ç›®
 */
 void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum);
-// ²âÊÔcnnº¯Êı
+// æµ‹è¯•cnnå‡½æ•°
 float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum);
-// ±£´æcnn
+// ä¿å­˜cnn
 void savecnn(CNN* cnn, const char* filename);
-// µ¼ÈëcnnµÄÊı¾İ
+// å¯¼å…¥cnnçš„æ•°æ®
 void importcnn(CNN* cnn, const char* filename);
 
-// ³õÊ¼»¯¾í»ı²ã
+// åˆå§‹åŒ–å·ç§¯å±‚
 CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels);
 void CovLayerConnect(CovLayer* covL,bool* connectModel);
-// ³õÊ¼»¯²ÉÑù²ã
+// åˆå§‹åŒ–é‡‡æ ·å±‚
 PoolLayer* initPoolLayer(int inputWidth,int inputHeigh,int mapSize,int inChannels,int outChannels,int poolType);
 void PoolLayerConnect(PoolLayer* poolL,bool* connectModel);
-// ³õÊ¼»¯Êä³ö²ã
+// åˆå§‹åŒ–è¾“å‡ºå±‚
 OutLayer* initOutLayer(int inputNum,int outputNum);
 
-// ¼¤»îº¯Êı inputÊÇÊı¾İ£¬inputNumËµÃ÷Êı¾İÊıÄ¿£¬bas±íÃ÷Æ«ÖÃ
-float activation_Sigma(float input,float bas); // sigma¼¤»îº¯Êı
+// æ¿€æ´»å‡½æ•° inputæ˜¯æ•°æ®ï¼ŒinputNumè¯´æ˜æ•°æ®æ•°ç›®ï¼Œbasè¡¨æ˜åç½®
+float activation_Sigma(float input,float bas); // sigmaæ¿€æ´»å‡½æ•°
 
-void cnnff(CNN* cnn,float** inputData); // ÍøÂçµÄÇ°Ïò´«²¥
-void cnnbp(CNN* cnn,float* outputData); // ÍøÂçµÄºóÏò´«²¥
+void cnnff(CNN* cnn,float** inputData); // ç½‘ç»œçš„å‰å‘ä¼ æ’­
+void cnnbp(CNN* cnn,float* outputData); // ç½‘ç»œçš„åå‘ä¼ æ’­
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData);
-void cnnclear(CNN* cnn); // ½«Êı¾İvydÇåÁã
+void cnnclear(CNN* cnn); // å°†æ•°æ®vydæ¸…é›¶
 
 /*
 	Pooling Function
-	input ÊäÈëÊı¾İ
-	inputNum ÊäÈëÊı¾İÊıÄ¿
-	mapSize ÇóÆ½¾ùµÄÄ£¿éÇøÓò
+	input è¾“å…¥æ•°æ®
+	inputNum è¾“å…¥æ•°æ®æ•°ç›®
+	mapSize æ±‚å¹³å‡çš„æ¨¡å—åŒºåŸŸ
 */
-void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize); // ÇóÆ½¾ùÖµ
+void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize); // æ±‚å¹³å‡å€¼
 
-/* 
-	µ¥²ãÈ«Á¬½ÓÉñ¾­ÍøÂçµÄ´¦Àí
-	nnSizeÊÇÍøÂçµÄ´óĞ¡
+/*
+	å•å±‚å…¨è¿æ¥ç¥ç»ç½‘ç»œçš„å¤„ç†
+	nnSizeæ˜¯ç½‘ç»œçš„å¤§å°
 */
-void nnff(float* output,float* input,float** wdata,float* bas,nSize nnSize); // µ¥²ãÈ«Á¬½ÓÉñ¾­ÍøÂçµÄÇ°Ïò´«²¥
+void nnff(float* output,float* input,float** wdata,float* bas,nSize nnSize); // å•å±‚å…¨è¿æ¥ç¥ç»ç½‘ç»œçš„å‰å‘ä¼ æ’­
 
-void savecnndata(CNN* cnn,const char* filename,float** inputdata); // ±£´æCNNÍøÂçÖĞµÄÏà¹ØÊı¾İ
+void savecnndata(CNN* cnn,const char* filename,float** inputdata); // ä¿å­˜CNNç½‘ç»œä¸­çš„ç›¸å…³æ•°æ®
 
 #endif

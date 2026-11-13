@@ -1,4 +1,4 @@
-// ÕâÀï¿âÎÄ¼şÖ÷Òª´æÔÚ¹ØÓÚ¶şÎ¬¾ØÕóÊı×éµÄ²Ù×÷
+// è¿™é‡Œåº“æ–‡ä»¶ä¸»è¦å­˜åœ¨å…³äºäºŒç»´çŸ©é˜µæ•°ç»„çš„æ“ä½œ
 #ifndef __MAT_
 #define __MAT_
 
@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <random>
+#include <stdbool.h>
 #include <time.h>
 
 #define full 0
@@ -14,34 +14,34 @@
 #define valid 2
 
 typedef struct Mat2DSize{
-	int c; // ÁĞ£¨¿í£©
-	int r; // ĞĞ£¨¸ß£©
+	int c; // åˆ—ï¼ˆå®½ï¼‰
+	int r; // è¡Œï¼ˆé«˜ï¼‰
 }nSize;
 
-float** rotate180(float** mat, nSize matSize);// ¾ØÕó·­×ª180¶È
+float** rotate180(float** mat, nSize matSize);// çŸ©é˜µç¿»è½¬180åº¦
 
-void addmat(float** res, float** mat1, nSize matSize1, float** mat2, nSize matSize2);// ¾ØÕóÏà¼Ó
+void addmat(float** res, float** mat1, nSize matSize1, float** mat2, nSize matSize2);// çŸ©é˜µç›¸åŠ 
 
-float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int type);// »¥Ïà¹Ø
+float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int type);// äº’ç›¸å…³
 
-float** cov(float** map,nSize mapSize,float** inputData,nSize inSize,int type); // ¾í»ı²Ù×÷
+float** cov(float** map,nSize mapSize,float** inputData,nSize inSize,int type); // å·ç§¯æ“ä½œ
 
-// Õâ¸öÊÇ¾ØÕóµÄÉÏ²ÉÑù£¨µÈÖµÄÚ²å£©£¬upc¼°uprÊÇÄÚ²å±¶Êı
+// è¿™ä¸ªæ˜¯çŸ©é˜µçš„ä¸Šé‡‡æ ·ï¼ˆç­‰å€¼å†…æ’ï¼‰ï¼ŒupcåŠupræ˜¯å†…æ’å€æ•°
 float** UpSample(float** mat,nSize matSize,int upc,int upr);
 
-// ¸ø¶şÎ¬¾ØÕó±ßÔµÀ©´ó£¬Ôö¼Óaddw´óĞ¡µÄ0Öµ±ß
+// ç»™äºŒç»´çŸ©é˜µè¾¹ç¼˜æ‰©å¤§ï¼Œå¢åŠ addwå¤§å°çš„0å€¼è¾¹
 float** matEdgeExpand(float** mat,nSize matSize,int addc,int addr);
 
-// ¸ø¶şÎ¬¾ØÕó±ßÔµËõĞ¡£¬²Á³ıshrinkc´óĞ¡µÄ±ß
+// ç»™äºŒç»´çŸ©é˜µè¾¹ç¼˜ç¼©å°ï¼Œæ“¦é™¤shrinkcå¤§å°çš„è¾¹
 float** matEdgeShrink(float** mat,nSize matSize,int shrinkc,int shrinkr);
 
-void savemat(float** mat,nSize matSize,const char* filename);// ±£´æ¾ØÕóÊı¾İ
+void savemat(float** mat,nSize matSize,const char* filename);// ä¿å­˜çŸ©é˜µæ•°æ®
 
-void multifactor(float** res, float** mat, nSize matSize, float factor);// ¾ØÕó³ËÒÔÏµÊı
+void multifactor(float** res, float** mat, nSize matSize, float factor);// çŸ©é˜µä¹˜ä»¥ç³»æ•°
 
-float summat(float** mat,nSize matSize);// ¾ØÕó¸÷ÔªËØµÄºÍ
+float summat(float** mat,nSize matSize);// çŸ©é˜µå„å…ƒç´ çš„å’Œ
 
-char * combine_strings(char *a, char *b);
+char * combine_strings(const char *a, const char *b);
 
 char* intTochar(int i);
 

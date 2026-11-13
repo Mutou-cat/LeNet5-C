@@ -1,41 +1,41 @@
 #ifndef __MINST_
 #define __MINST_
 /*
-MINSTÊı¾İ¿âÊÇÒ»¸öÊÖĞ´Í¼ÏñÊı¾İ¿â£¬ÀïÃæ
+MINSTæ•°æ®åº“æ˜¯ä¸€ä¸ªæ‰‹å†™å›¾åƒæ•°æ®åº“ï¼Œé‡Œé¢
 */
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <random>
+#include <stdbool.h>
 #include <time.h>
 
 typedef struct MinstImg{
-	int c;           // Í¼Ïñ¿í
-	int r;           // Í¼Ïñ¸ß
-	float** ImgData; // Í¼ÏñÊı¾İ¶şÎ¬¶¯Ì¬Êı×é
+	int c;           // å›¾åƒå®½
+	int r;           // å›¾åƒé«˜
+	float** ImgData; // å›¾åƒæ•°æ®äºŒç»´åŠ¨æ€æ•°ç»„
 }MinstImg;
 
 typedef struct MinstImgArr{
-	int ImgNum;        // ´æ´¢Í¼ÏñµÄÊıÄ¿
-	MinstImg* ImgPtr;  // ´æ´¢Í¼ÏñÊı×éÖ¸Õë
-}*ImgArr;              // ´æ´¢Í¼ÏñÊı¾İµÄÊı×é
+	int ImgNum;        // å­˜å‚¨å›¾åƒçš„æ•°ç›®
+	MinstImg* ImgPtr;  // å­˜å‚¨å›¾åƒæ•°ç»„æŒ‡é’ˆ
+} MinstImgArr, *ImgArr;              // å­˜å‚¨å›¾åƒæ•°æ®çš„æ•°ç»„
 
 typedef struct MinstLabel{
-	int l;            // Êä³ö±ê¼ÇµÄ³¤
-	float* LabelData; // Êä³ö±ê¼ÇÊı¾İ
+	int l;            // è¾“å‡ºæ ‡è®°çš„é•¿
+	float* LabelData; // è¾“å‡ºæ ‡è®°æ•°æ®
 }MinstLabel;
 
 typedef struct MinstLabelArr{
 	int LabelNum;
 	MinstLabel* LabelPtr;
-}*LabelArr;              // ´æ´¢Í¼Ïñ±ê¼ÇµÄÊı×é
+} MinstLabelArr, *LabelArr;              // å­˜å‚¨å›¾åƒæ ‡è®°çš„æ•°ç»„
 
-LabelArr read_Lable(const char* filename); // ¶ÁÈëÍ¼Ïñ±ê¼Ç
+LabelArr read_Lable(const char* filename); // è¯»å…¥å›¾åƒæ ‡è®°
 
-ImgArr read_Img(const char* filename); // ¶ÁÈëÍ¼Ïñ
+ImgArr read_Img(const char* filename); // è¯»å…¥å›¾åƒ
 
-void save_Img(ImgArr imgarr,char* filedir); // ½«Í¼ÏñÊı¾İ±£´æ³ÉÎÄ¼ş
+void save_Img(ImgArr imgarr,const char* filedir); // å°†å›¾åƒæ•°æ®ä¿å­˜æˆæ–‡ä»¶
 
 #endif

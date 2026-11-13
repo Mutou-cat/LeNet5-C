@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -61,10 +61,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="cnn.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="mat.cpp" />
-    <ClCompile Include="minst.cpp" />
+    <ClCompile Include="cnn.c" />
+    <ClCompile Include="main.c" />
+    <ClCompile Include="mat.c" />
+    <ClCompile Include="minst.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cnn.h" />
