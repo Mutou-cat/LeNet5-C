@@ -8,8 +8,12 @@ SOURCES := CNN/CNN/main.c CNN/CNN/cnn.c CNN/CNN/mat.c CNN/CNN/minst.c
 OBJECTS := $(patsubst CNN/CNN/%.c,build/%.o,$(SOURCES))
 TARGET := build/cnn
 
-.PHONY: all clean
+.PHONY: all clean gui
 all: $(TARGET)
+
+PYTHON ?= python3
+gui: $(TARGET)
+	$(PYTHON) gui.py
 
 $(TARGET): $(OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@

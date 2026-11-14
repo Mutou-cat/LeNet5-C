@@ -268,11 +268,15 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 {
 	// 学习训练误差曲线
 	cnn->L=(float*)malloc(trainNum*sizeof(float));
+	printf("Training: %d samples, %d epochs, learning rate %.4g\n",
+		trainNum, opts.numepochs, opts.alpha);
+	fflush(stdout);
 	int e;
 	for(e=0;e<opts.numepochs;e++){
+		printf("Epoch %d/%d: starting\n", e+1, opts.numepochs);
+		fflush(stdout);
 		int n=0;
 		for(n=0;n<trainNum;n++){
-			//printf("%d\n",n);
 			cnnff(cnn,inputData->ImgPtr[n].ImgData);  // 前向传播，这里主要计算各
 			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 后向传播，这里主要计算各神经元的误差梯度
 
@@ -289,6 +293,13 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 				cnn->L[n]=l/(float)2.0;
 			else
 				cnn->L[n]=cnn->L[n-1]*0.99+0.01*l/(float)2.0;
+			// 首个样本、每 100 个样本及本轮结束时输出平滑损失。
+			if(n==0 || (n+1)%100==0 || n+1==trainNum){
+				printf("Epoch %d/%d | %d/%d (%6.2f%%) | smoothed loss: %.6f\n",
+					e+1, opts.numepochs, n+1, trainNum,
+					100.0*(n+1)/trainNum, cnn->L[n]);
+				fflush(stdout);
+			}
 		}
 	}
 }
