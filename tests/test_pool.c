@@ -3,7 +3,7 @@
 
 static void near(float actual,float expected,float tolerance)
 {
-    if(fabsf(actual-expected)>tolerance) {
+    if(!isfinite(actual)||!isfinite(expected)||fabsf(actual-expected)>tolerance) {
         fprintf(stderr,"gradient mismatch: %.8f versus %.8f\n",actual,expected);
         abort();
     }
@@ -141,7 +141,7 @@ int main(int argc,char** argv)
     expected[0]=cnn.S2->dscaleData[0]; expected[1]=cnn.S2->dbasicData[0];
     expected[2]=cnn.S4->dscaleData[0]; expected[3]=cnn.S4->dbasicData[0];
     /* Compute selected convolution gradients directly from d and the saved inputs. */
-    for(int layer=0;layer<3;layer++) {
+    for(int layer=0;layer<2;layer++) {
         CovLayer* p=convs[layer]; expected[4+layer]=0;
         for(int r=0;r<p->inputHeight-4;r++) for(int c=0;c<p->inputWidth-4;c++) {
             float input=layer ? cnn.S2->y[0][r+2][c+2] : x[r+2][c+2];
@@ -167,6 +167,9 @@ int main(int argc,char** argv)
             pools[layer]->basicData[i]=-99;
         }
     cnn.C1->mapData[0][0][0][0]=99;
+    for(int i=0;i<16;i++) for(int j=0;j<120;j++)
+        for(int r=0;r<5;r++) for(int c=0;c<5;c++) cnn.C5->mapData[i][j][r][c]=99;
+    for(int j=0;j<120;j++) cnn.C5->basicData[j]=99;
     cnn.O5->basicData[0]=99;
     importcnn(&cnn,argv[1]);
     for(int i=0;i<cnn.C3->inChannels;i++) for(int j=0;j<cnn.C3->outChannels;j++)

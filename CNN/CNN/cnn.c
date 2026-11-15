@@ -237,9 +237,9 @@ float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 }
 
 // 文件版本固定当前的缩放tanh/可训练下采样语义；结构变化时拒绝误加载。
-static const char model_magic[8]={'D','L','C','S','P','C','0','1'};
+static const char model_magic[8]={'D','L','C','C','5','V','0','1'};
 
-static void model_shape(const CNN* cnn,int shape[12])
+static void model_shape(const CNN* cnn,int shape[15])
 {
 	shape[0]=cnn->C1->inputWidth;
 	shape[1]=cnn->C1->inputHeight;
@@ -253,6 +253,9 @@ static void model_shape(const CNN* cnn,int shape[12])
 	shape[9]=cnn->S4->mapSize;
 	shape[10]=cnn->O5->inputNum;
 	shape[11]=cnn->O5->outputNum;
+	shape[12]=cnn->C5->inChannels;
+	shape[13]=cnn->C5->outChannels;
+	shape[14]=cnn->C5->mapSize;
 }
 
 // 通道连接按输入优先存为0/1字节；加载时核对当前连接规则。
@@ -288,12 +291,13 @@ void savecnn(CNN* cnn, const char* filename)
 		exit(EXIT_FAILURE);
 	}
 
-	int shape[12];
+	int shape[15];
 	model_shape(cnn,shape);
 	write_exact(model_magic,1,sizeof(model_magic),fp);
-	write_exact(shape,sizeof(int),12,fp);
+	write_exact(shape,sizeof(int),15,fp);
 	write_connections(cnn->C1,fp);
 	write_connections(cnn->C3,fp);
+	write_connections(cnn->C5,fp);
 
 	int i,j,r;
 	// C1的数据
@@ -313,6 +317,15 @@ void savecnn(CNN* cnn, const char* filename)
 				write_exact(cnn->C3->mapData[i][j][r],sizeof(float),cnn->C3->mapSize,fp);
 
 	write_exact(cnn->C3->basicData,sizeof(float),cnn->C3->outChannels,fp);
+
+	// C5网络
+	for(i=0;i<cnn->C5->inChannels;i++)
+		for(j=0;j<cnn->C5->outChannels;j++)
+			if(covConnected(cnn->C5,i,j))
+			for(r=0;r<cnn->C5->mapSize;r++)
+				write_exact(cnn->C5->mapData[i][j][r],sizeof(float),cnn->C5->mapSize,fp);
+
+	write_exact(cnn->C5->basicData,sizeof(float),cnn->C5->outChannels,fp);
 
 	// O5输出层
 	for(i=0;i<cnn->O5->outputNum;i++)
@@ -337,14 +350,14 @@ void importcnn(CNN* cnn, const char* filename)
 	}
 
 	char magic[8];
-	int expected[12],actual[12];
+	int expected[15],actual[15];
 	read_exact(magic,1,sizeof(magic),fp);
 	if(memcmp(magic,model_magic,sizeof(magic)) != 0) {
-		fprintf(stderr,"Incompatible model: expected DLCSPC01; retrain for the new network\n");
+		fprintf(stderr,"Incompatible model: expected DLCC5V01; retrain for the new network\n");
 		fclose(fp); exit(EXIT_FAILURE);
 	}
 	model_shape(cnn,expected);
-	read_exact(actual,sizeof(int),12,fp);
+	read_exact(actual,sizeof(int),15,fp);
 	if(memcmp(actual,expected,sizeof(actual)) != 0) {
 		fprintf(stderr,"Model architecture does not match the current CNN\n");
 		fclose(fp); exit(EXIT_FAILURE);
@@ -352,8 +365,10 @@ void importcnn(CNN* cnn, const char* filename)
 
 	check_connections(cnn->C1,fp);
 	check_connections(cnn->C3,fp);
+	check_connections(cnn->C5,fp);
 	CovLayerConnect(cnn->C1,cnn->C1->connectModel);
 	CovLayerConnect(cnn->C3,cnn->C3->connectModel);
+	CovLayerConnect(cnn->C5,cnn->C5->connectModel);
 
 	int i,j,c,r;
 	// C1的数据
@@ -378,6 +393,17 @@ void importcnn(CNN* cnn, const char* filename)
 
 	for(i=0;i<cnn->C3->outChannels;i++)
 		read_exact(&cnn->C3->basicData[i],sizeof(float),1,fp);
+
+	// C5网络
+	for(i=0;i<cnn->C5->inChannels;i++)
+		for(j=0;j<cnn->C5->outChannels;j++)
+			if(covConnected(cnn->C5,i,j))
+			for(r=0;r<cnn->C5->mapSize;r++)
+				for(c=0;c<cnn->C5->mapSize;c++)
+				read_exact(&cnn->C5->mapData[i][j][r][c],sizeof(float),1,fp);
+
+	for(i=0;i<cnn->C5->outChannels;i++)
+		read_exact(&cnn->C5->basicData[i],sizeof(float),1,fp);
 
 	// O5输出层
 	for(i=0;i<cnn->O5->outputNum;i++)
