@@ -18,13 +18,13 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->C1=initCovLayer(inSize.c,inSize.r,5,1,6);
 	inSize.c=inSize.c-mapSize+1;
 	inSize.r=inSize.r-mapSize+1;
-	cnn->S2=initPoolLayer(inSize.c,inSize.r,2,6,6,AvePool);
+	cnn->S2=initPoolLayer(inSize.c,inSize.r,2,6,6);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
 	cnn->C3=initCovLayer(inSize.c,inSize.r,5,6,12);
 	inSize.c=inSize.c-mapSize+1;
 	inSize.r=inSize.r-mapSize+1;
-	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,12,12,AvePool);
+	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,12,12);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
 	cnn->O5=initOutLayer(inSize.c*inSize.r*12,outputSize);
@@ -97,7 +97,7 @@ CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels
 	return covL;
 }
 
-PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels,int poolType)
+PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
 {
 	PoolLayer* poolL=(PoolLayer*)malloc(sizeof(PoolLayer));
 
@@ -106,7 +106,6 @@ PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChanne
 	poolL->mapSize=mapSize;
 	poolL->inChannels=inChannels;
 	poolL->outChannels=outChannels;
-	poolL->poolType=poolType;
 
 	poolL->scaleData=(float*)malloc(outChannels*sizeof(float));
 	poolL->basicData=(float*)calloc(outChannels,sizeof(float));

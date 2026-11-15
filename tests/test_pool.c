@@ -36,7 +36,7 @@ static float pool_loss(PoolLayer* p,float*** x)
 
 static void check_pool(void)
 {
-    PoolLayer* p=initPoolLayer(6,4,2,2,2,AvePool);
+    PoolLayer* p=initPoolLayer(6,4,2,2,2);
     float data[2][4][6],*rows[2][4],**x[2];
     for(int i=0;i<2;i++) {
         near(p->scaleData[i],0.25f,0);

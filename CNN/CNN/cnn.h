@@ -10,9 +10,6 @@
 #include "mat.h"
 #include "minst.h"
 
-#define AvePool 0
-#define MaxPool 1
-#define MinPool 2
 
 // 卷积层
 typedef struct convolutional_layer{
@@ -51,7 +48,6 @@ typedef struct pooling_layer{
 	int inChannels;   //输入图像的数目
 	int outChannels;  //输出图像的数目
 
-	int poolType;     //Pooling的方法
 	float* scaleData;   // 每通道的可训练缩放系数a
 	float* basicData;   // 每通道共享的偏置b
 	float* dscaleData;  // 损失对a的梯度
@@ -113,7 +109,7 @@ void importcnn(CNN* cnn, const char* filename);
 CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels);
 void CovLayerConnect(CovLayer* covL,bool* connectModel);
 // 初始化采样层
-PoolLayer* initPoolLayer(int inputWidth,int inputHeigh,int mapSize,int inChannels,int outChannels,int poolType);
+PoolLayer* initPoolLayer(int inputWidth,int inputHeigh,int mapSize,int inChannels,int outChannels);
 void PoolLayerConnect(PoolLayer* poolL,bool* connectModel);
 // 初始化输出层
 OutLayer* initOutLayer(int inputNum,int outputNum);
