@@ -8,7 +8,7 @@ SOURCES := CNN/CNN/main.c CNN/CNN/cnn.c CNN/CNN/mat.c CNN/CNN/minst.c
 OBJECTS := $(patsubst CNN/CNN/%.c,build/%.o,$(SOURCES))
 TARGET := build/cnn
 
-.PHONY: all clean gui
+.PHONY: all clean gui test
 all: $(TARGET)
 
 PYTHON ?= python3
@@ -28,3 +28,10 @@ clean:
 	rm -rf build
 
 -include $(OBJECTS:.o=.d)
+
+TEST_OBJECTS := build/cnn.o build/mat.o build/minst.o
+build/test_pool: tests/test_pool.c $(TEST_OBJECTS) CNN/CNN/cnn.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -ICNN/CNN $< $(TEST_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+
+test: build/test_pool
+	./build/test_pool

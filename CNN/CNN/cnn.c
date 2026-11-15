@@ -450,6 +450,31 @@ float sigma_derivation(float y){ // 缩放tanh对激活前输入z的导数
 	return A*S*(1.0f-t*t);
 }
 
+// 调用前d是dL/dy，调用后d是dL/dz；每个样本重新计算参数梯度。
+void poolbp(PoolLayer* pool)
+{
+	int width=pool->inputWidth/pool->mapSize;
+	int height=pool->inputHeight/pool->mapSize;
+	for(int i=0;i<pool->outChannels;i++) {
+		pool->dscaleData[i]=0.0f;
+		pool->dbasicData[i]=0.0f;
+		for(int r=0;r<height;r++)
+			for(int c=0;c<width;c++) {
+				pool->d[i][r][c]*=sigma_derivation(pool->y[i][r][c]);
+				pool->dscaleData[i]+=pool->d[i][r][c]*pool->sumData[i][r][c];
+				pool->dbasicData[i]+=pool->d[i][r][c];
+			}
+	}
+}
+
+void poolapplygrads(PoolLayer* pool,float alpha)
+{
+	for(int i=0;i<pool->outChannels;i++) {
+		pool->scaleData[i]-=alpha*pool->dscaleData[i];
+		pool->basicData[i]-=alpha*pool->dbasicData[i];
+	}
+}
+
 void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 {
 	int i,j,c,r; // 将误差保存到网络中
@@ -462,7 +487,7 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 		cnn->O5->d[i]=cnn->e[i]*sigma_derivation(cnn->O5->y[i]);
 
 	// S4层，传递到S4层的误差
-	// 这里没有激活函数
+	// 先累加损失对S4输出y的梯度，再通过poolbp转换为对z的梯度。
 	nSize outSize={cnn->S4->inputWidth/cnn->S4->mapSize,cnn->S4->inputHeight/cnn->S4->mapSize};
 	for(i=0;i<cnn->S4->outChannels;i++)
 		for(r=0;r<outSize.r;r++)
@@ -472,21 +497,23 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 					cnn->S4->d[i][r][c]=cnn->S4->d[i][r][c]+cnn->O5->d[j]*cnn->O5->wData[j][wInt];
 				}
 
+	poolbp(cnn->S4);
+
 	// C3层
 	// 由S4层传递的各反向误差,这里只是在S4的梯度上扩充一倍
 	nSize S4dSize={cnn->S4->inputWidth/cnn->S4->mapSize,cnn->S4->inputHeight/cnn->S4->mapSize};
-	// 这里的Pooling是求平均，所以反向传递到下一神经元的误差梯度没有变化
+	// z=a*sum+b，反向到每个输入的系数是a，不再固定除以窗口面积。
 	for(i=0;i<cnn->C3->outChannels;i++){
 		float** C3e=UpSample(cnn->S4->d[i],S4dSize,cnn->S4->mapSize,cnn->S4->mapSize);
 		for(r=0;r<cnn->S4->inputHeight;r++)
 			for(c=0;c<cnn->S4->inputWidth;c++)
-				cnn->C3->d[i][r][c]=C3e[r][c]*sigma_derivation(cnn->C3->y[i][r][c])/(float)(cnn->S4->mapSize*cnn->S4->mapSize);
+				cnn->C3->d[i][r][c]=C3e[r][c]*cnn->S4->scaleData[i]*sigma_derivation(cnn->C3->y[i][r][c]);
 		for(r=0;r<cnn->S4->inputHeight;r++)
 			free(C3e[r]);
 		free(C3e);
 	}
 
-	// S2层，S2层没有激活函数，这里只有卷积层有激活函数部分
+	// S2层：先累加dL/dy，再反传其缩放tanh。
 	// 由卷积层传递给采样层的误差梯度，这里卷积层共有6*12个卷积模板
 	outSize.c=cnn->C3->inputWidth;
 	outSize.r=cnn->C3->inputHeight;
@@ -500,21 +527,17 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 				free(corr[r]);
 			free(corr);
 		}
-		/*
-		for(r=0;r<cnn->C3->inputHeight;r++)
-			for(c=0;c<cnn->C3->inputWidth;c++)
-				// 这里本来用于采样的激活
-		*/
 	}
+	poolbp(cnn->S2);
 
 	// C1层，卷积层
 	nSize S2dSize={cnn->S2->inputWidth/cnn->S2->mapSize,cnn->S2->inputHeight/cnn->S2->mapSize};
-	// 这里的Pooling是求平均，所以反向传递到下一神经元的误差梯度没有变化
+	// z=a*sum+b，反向到每个输入的系数是a，不再固定除以窗口面积。
 	for(i=0;i<cnn->C1->outChannels;i++){
 		float** C1e=UpSample(cnn->S2->d[i],S2dSize,cnn->S2->mapSize,cnn->S2->mapSize);
 		for(r=0;r<cnn->S2->inputHeight;r++)
 			for(c=0;c<cnn->S2->inputWidth;c++)
-				cnn->C1->d[i][r][c]=C1e[r][c]*sigma_derivation(cnn->C1->y[i][r][c])/(float)(cnn->S2->mapSize*cnn->S2->mapSize);
+				cnn->C1->d[i][r][c]=C1e[r][c]*cnn->S2->scaleData[i]*sigma_derivation(cnn->C1->y[i][r][c]);
 		for(r=0;r<cnn->S2->inputHeight;r++)
 			free(C1e[r]);
 		free(C1e);
@@ -523,8 +546,7 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 {
-	// 这里存在权重的主要是卷积层和输出层
-	// 更新这两个地方的权重就可以了
+	// 全部反传完成后，统一更新卷积、输出层和下采样层参数。
 	int i,j,r,c;
 
 	// C1层的权重更新
@@ -585,6 +607,8 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 			cnn->O5->wData[j][i]=cnn->O5->wData[j][i]-opts.alpha*cnn->O5->d[j]*O5inData[i];
 		cnn->O5->basicData[j]=cnn->O5->basicData[j]-opts.alpha*cnn->O5->d[j];
 	}
+	poolapplygrads(cnn->S2,opts.alpha);
+	poolapplygrads(cnn->S4,opts.alpha);
 	free(O5inData);
 }
 
@@ -604,8 +628,11 @@ void cnnclear(CNN* cnn)
 	}
 	// S2网络
 	for(j=0;j<cnn->S2->outChannels;j++){
+		cnn->S2->dscaleData[j]=0.0f;
+		cnn->S2->dbasicData[j]=0.0f;
 		for(r=0;r<cnn->C3->inputHeight;r++){
 			for(c=0;c<cnn->C3->inputWidth;c++){
+				cnn->S2->sumData[j][r][c]=0.0f;
 				cnn->S2->d[j][r][c]=(float)0.0;
 				cnn->S2->y[j][r][c]=(float)0.0;
 			}
@@ -623,8 +650,11 @@ void cnnclear(CNN* cnn)
 	}
 	// S4网络
 	for(j=0;j<cnn->S4->outChannels;j++){
+		cnn->S4->dscaleData[j]=0.0f;
+		cnn->S4->dbasicData[j]=0.0f;
 		for(r=0;r<cnn->S4->inputHeight/cnn->S4->mapSize;r++){
 			for(c=0;c<cnn->S4->inputWidth/cnn->S4->mapSize;c++){
+				cnn->S4->sumData[j][r][c]=0.0f;
 				cnn->S4->d[j][r][c]=(float)0.0;
 				cnn->S4->y[j][r][c]=(float)0.0;
 			}

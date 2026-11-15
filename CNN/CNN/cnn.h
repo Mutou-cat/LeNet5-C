@@ -122,6 +122,8 @@ OutLayer* initOutLayer(int inputNum,int outputNum);
 float activation_Sigma(float input,float bas); // LeNet-5缩放tanh：1.7159*tanh((2/3)*(input+bas))
 
 void poolff(PoolLayer* pool,float*** input); // 可训练下采样前向计算
+void poolbp(PoolLayer* pool); // 将dL/dy转换为dL/dz，并求a、b的梯度
+void poolapplygrads(PoolLayer* pool,float alpha);
 
 void cnnff(CNN* cnn,float** inputData); // 网络的前向传播
 void cnnbp(CNN* cnn,float* outputData); // 网络的后向传播
