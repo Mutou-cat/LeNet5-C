@@ -9,7 +9,7 @@ static void usage(const char *program)
     printf("Usage: %s test|train IMAGES LABELS MODEL\n", program);
     printf("       %s predict MODEL < pixels.raw (784 grayscale bytes)\n", program);
     printf("MNIST images must be 28x28 IDX files; labels must be IDX files.\n");
-    printf("Training uses 10 epochs and learning rate 1.0.\n");
+    printf("Training uses 10 epochs and learning rate 0.001.\n");
 }
 
 static int predict(const char *model)
@@ -37,15 +37,15 @@ static int predict(const char *model)
     cnnff(&cnn, rows);
     int best = 0;
     for (int i = 0; i < 10; ++i) {
-        if (!isfinite(cnn.O5->y[i])) {
-            fprintf(stderr, "Model produced a non-finite score\n");
+        if (!isfinite(cnn.O7.y[i])) {
+            fprintf(stderr, "Model produced a non-finite RBF distance\n");
             return EXIT_FAILURE;
         }
-        if (cnn.O5->y[i] > cnn.O5->y[best]) best = i;
+        if (cnn.O7.y[i] < cnn.O7.y[best]) best = i;
     }
-    printf("{\"digit\":%d,\"scores\":[", best);
+    printf("{\"digit\":%d,\"score_type\":\"squared_distance\",\"scores\":[", best);
     for (int i = 0; i < 10; ++i)
-        printf("%s%.8f", i ? "," : "", cnn.O5->y[i]);
+        printf("%s%.8f", i ? "," : "", cnn.O7.y[i]);
     printf("]}\n");
     return EXIT_SUCCESS;
 }
@@ -76,7 +76,7 @@ int main(int argc, char **argv)
     nSize input_size = {32, 32};
     cnnsetup(&cnn, input_size, 10);
     if (strcmp(argv[1], "train") == 0) {
-        CNNOpts options = {10, 1.0f};
+        CNNOpts options = {10, 0.001f};
         cnntrain(&cnn, images, labels, options, images->ImgNum);
         savecnn(&cnn, argv[4]);
         printf("Training finished: %d samples; model saved to %s\n",

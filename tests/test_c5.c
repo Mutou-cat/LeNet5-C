@@ -12,15 +12,11 @@ static float derivative(float y)
 {
     return 1.7159f*(2.0f/3.0f)*(1-(y/1.7159f)*(y/1.7159f));
 }
-static float loss(CNN* cnn,float** input)
+static double loss(CNN* cnn,float** input)
 {
     cnnclear(cnn);cnnff(cnn,input);
-    float total=0;
-    for(int j=0;j<10;j++) {
-        float e=cnn->O5->y[j]-(j==3 ? 1.0f:0.0f);
-        total+=0.5f*e*e;
-    }
-    return total;
+    float target[10]={0};target[3]=1;
+    return cnnloss(cnn,target);
 }
 int main(void)
 {
@@ -30,7 +26,7 @@ int main(void)
     assert(cnn.C5->mapSize==5 && cnn.C5->inChannels==16);
     assert(cnn.C5->outChannels==120 && cnn.C5->isFullConnect);
     assert(cnn.F6->inputNum==120 && cnn.F6->outputNum==84);
-    assert(cnn.O5->inputNum==84);
+
     CovLayer* layers[]={cnn.C1,cnn.C3,cnn.C5};
     for(int l=0;l<3;l++) {
         CovLayer* p=layers[l];
@@ -43,10 +39,6 @@ int main(void)
     }
     for(int i=0;i<cnn.S2->outChannels;i++) cnn.S2->basicData[i]=0.03f;
     for(int i=0;i<cnn.S4->outChannels;i++) cnn.S4->basicData[i]=0.02f*(i+1);
-    for(int o=0;o<10;o++) {
-        cnn.O5->basicData[o]=0.01f;
-        for(int k=0;k<84;k++) cnn.O5->wData[o][k]=0.05f*cosf((float)(o*120+k));
-    }
     for(int j=0;j<84;j++) {
         cnn.F6->basicData[j]=0.015f*cosf((float)j);
         for(int k=0;k<120;k++) cnn.F6->wData[j][k]=0.08f*sinf((float)(j*120+k+1));
@@ -56,7 +48,7 @@ int main(void)
         input[r]=data[r];
         for(int c=0;c<32;c++) data[r][c]=0.3f*sinf((float)(r*32+c));
     }
-    float initial_loss=loss(&cnn,input);
+    double initial_loss=loss(&cnn,input);
     /* Independent reference: reuse existing mathematical convolution for each channel. */
     nSize five={5,5};
     for(int o=0;o<120;o++) {
@@ -76,8 +68,8 @@ int main(void)
     }
     cnnbp(&cnn,target);
     for(int j=0;j<84;j++) {
-        float dy=0;
-        for(int o=0;o<10;o++) dy+=cnn.O5->d[o]*cnn.O5->wData[o][j];
+        double dy=0;
+        for(int o=0;o<10;o++) dy+=2*cnn.O7.d[o]*(cnn.F6->y[j]-rbfCenter(o,j));
         near(cnn.F6->d[j],dy*derivative(cnn.F6->y[j]),0.000001f);
     }
     for(int o=0;o<120;o++) {
@@ -91,7 +83,7 @@ int main(void)
         for(int o=0;o<120;o++) dy+=cnn.C5->d[o][0][0]*cnn.C5->mapData[i][o][4-r][4-c];
         near(cnn.S4->d[i][r][c],dy*derivative(cnn.S4->y[i][r][c]),0.000003f);
     }
-    float* params[222];float grads[222],old[222];int n=0;
+    float* params[220];float grads[220],old[220];int n=0;
     /* Sample all input channels, both ends of output channels, and noncentral kernel entries. */
     for(int i=0;i<16;i++) for(int k=0;k<3;k++) {
         int o=(i*7+k*43)%120,a=(i+k)%5,b=(2*i+3*k)%5;
@@ -102,27 +94,28 @@ int main(void)
     params[n]=&cnn.C5->basicData[119];grads[n++]=cnn.C5->d[119][0][0];
     params[n]=&cnn.S4->scaleData[0];grads[n++]=cnn.S4->dscaleData[0];
     params[n]=&cnn.S4->basicData[15];grads[n++]=cnn.S4->dbasicData[15];
-    params[n]=&cnn.O5->wData[3][83];grads[n++]=cnn.O5->d[3]*cnn.F6->y[83];
-    params[n]=&cnn.O5->basicData[3];grads[n++]=cnn.O5->d[3];
     /* Cover every F6 neuron, biases and dispersed C5 input coordinates. */
     for(int j=0;j<84;j++) {
         int k=(j*37)%120;
         params[n]=&cnn.F6->wData[j][k];grads[n++]=cnn.F6->d[j]*cnn.C5->y[k][0][0];
         params[n]=&cnn.F6->basicData[j];grads[n++]=cnn.F6->d[j];
     }
-    assert(n==222);
+    assert(n==220);
     for(int k=0;k<n;k++) {
         old[k]=*params[k];float h=0.002f;
-        *params[k]=old[k]+h;float plus=loss(&cnn,input);
-        *params[k]=old[k]-h;float minus=loss(&cnn,input);
+        *params[k]=old[k]+h;double plus=loss(&cnn,input);
+        *params[k]=old[k]-h;double minus=loss(&cnn,input);
         *params[k]=old[k];
-        near(grads[k],(plus-minus)/(2*h),0.00008f);
+        near(grads[k],(plus-minus)/(2*h),0.0005f);
     }
     near(loss(&cnn,input),initial_loss,1e-7f);
     cnnbp(&cnn,target);
+    float codes[10][84];
+    for(int j=0;j<10;j++) for(int k=0;k<84;k++) codes[j][k]=rbfCenter(j,k);
     CNNOpts opts={1,0.001f};cnnapplygrads(&cnn,opts,input);
     for(int k=0;k<n;k++) near(*params[k],old[k]-opts.alpha*grads[k],0.000001f);
     assert(loss(&cnn,input)<initial_loss);
+    for(int j=0;j<10;j++) for(int k=0;k<84;k++) near(rbfCenter(j,k),codes[j][k],0);
     cnnclear(&cnn);
     for(int o=0;o<120;o++) {
         near(cnn.C5->v[o][0][0],0,0);
@@ -132,5 +125,5 @@ int main(void)
     for(int j=0;j<84;j++) {
         near(cnn.F6->v[j],0,0);near(cnn.F6->y[j],0,0);near(cnn.F6->d[j],0,0);
     }
-    puts("PASS: C5/F6 shapes, forward references, input gradients, 222 finite differences, updates and clear");
+    puts("PASS: C5/F6 shapes, forward references, input gradients, 220 finite differences, updates and clear");
 }

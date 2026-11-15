@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory() as folder:
     subprocess.run([str(ROOT / 'build/test_pool'), str(checkpoint)], check=True)
     raw = bytes(i % 256 for i in range(784))
     good = checkpoint.read_bytes()
-    assert good[:8] == b'DLCF6V01'
+    assert good[:8] == b'DLCRBF01'
     assert predict(checkpoint, raw).returncode == 0
     wrong_shape = bytearray(good)
     wrong_shape[8:12] = struct.pack('=i', 28)
@@ -32,15 +32,23 @@ with tempfile.TemporaryDirectory() as folder:
     wrong_c5_shape[8+13*struct.calcsize('=i'):8+14*struct.calcsize('=i')] = struct.pack('=i', 119)
     wrong_f6_shape = bytearray(good)
     wrong_f6_shape[8+16*struct.calcsize('=i'):8+17*struct.calcsize('=i')] = struct.pack('=i', 83)
-    assert len(good) == 8+17*struct.calcsize('=i')+6+96+16*120+60850*4
+    rbf_offset = 8+17*struct.calcsize('=i')+6+96+16*120
+    wrong_rbf = bytearray(good)
+    wrong_rbf[rbf_offset+4] ^= 1
+    wrong_loss = bytearray(good)
+    wrong_loss[rbf_offset:rbf_offset+4] = struct.pack('=f', 20)
+    assert len(good) == 8+17*struct.calcsize('=i')+6+96+16*120+4+840+60000*4
     for label, data, message in [
         ('previous', b'DLCPOOL1'+good[8:], b'Incompatible model'),
         ('sparse', b'DLCSPC01'+good[8:], b'Incompatible model'),
         ('c5', b'DLCC5V01'+good[8:], b'Incompatible model'),
+        ('f6', b'DLCF6V01'+good[8:], b'Incompatible model'),
         ('connections', wrong_connections, b'connection table'),
         ('c5_connections', wrong_c5_connections, b'connection table'),
         ('c5_shape', wrong_c5_shape, b'architecture'),
         ('f6_shape', wrong_f6_shape, b'architecture'),
+        ('rbf_template', wrong_rbf, b'RBF templates'),
+        ('rbf_loss', wrong_loss, b'RBF loss'),
         ('old', bytes(15592), b'Incompatible model'),
         ('shape', wrong_shape, b'architecture'),
         ('truncated', good[:-4], b'truncated'),
@@ -66,7 +74,9 @@ with tempfile.TemporaryDirectory() as folder:
         assert result.returncode == 0, result.stderr
         output = json.loads(result.stdout)
         assert len(output['scores']) == 10
-        assert all(-1.71591 <= value <= 1.71591 for value in output['scores'])
+        assert output['score_type'] == 'squared_distance'
+        assert all(0 <= value <= 84*(1+1.71591)**2 for value in output['scores'])
+        assert output['digit'] == min(range(10), key=lambda j: output['scores'][j])
         wrong += output['digit'] != label
     result = subprocess.run([str(BIN), 'test', str(images), str(labels), str(trained)],
                             check=True, capture_output=True, text=True)

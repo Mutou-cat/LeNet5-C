@@ -92,15 +92,11 @@ static void check_pool(void)
     free_pool(p);
 }
 
-static float network_loss(CNN* cnn,float** x,float* target)
+static double network_loss(CNN* cnn,float** x,float* target)
 {
     cnnclear(cnn);
     cnnff(cnn,x);
-    float loss=0;
-    for(int i=0;i<10;i++) {
-        float e=cnn->O5->y[i]-target[i]; loss+=0.5f*e*e;
-    }
-    return loss;
+    return cnnloss(cnn,target);
 }
 
 int main(int argc,char** argv)
@@ -117,8 +113,6 @@ int main(int argc,char** argv)
             for(int r=0;r<5;r++) for(int c=0;c<5;c++)
                 p->mapData[i][j][r][c]=0.08f*sinf((float)++counter);
     }
-    for(int i=0;i<10;i++) for(int j=0;j<cnn.O5->inputNum;j++)
-        cnn.O5->wData[i][j]=0.07f*cosf((float)++counter);
     for(int i=0;i<cnn.S2->outChannels;i++) cnn.S2->basicData[i]=0.02f;
     for(int i=0;i<cnn.S4->outChannels;i++) cnn.S4->scaleData[i]=0.2f;
     for(int j=0;j<84;j++) for(int k=0;k<120;k++)
@@ -153,14 +147,14 @@ int main(int argc,char** argv)
     const float h=0.002f;
     for(int i=0;i<6;i++) {
         float old=*params[i];
-        *params[i]=old+h; float plus=network_loss(&cnn,x,target);
-        *params[i]=old-h; float minus=network_loss(&cnn,x,target);
+        *params[i]=old+h; double plus=network_loss(&cnn,x,target);
+        *params[i]=old-h; double minus=network_loss(&cnn,x,target);
         *params[i]=old;
         near(expected[i],(plus-minus)/(2*h),0.0003f);
     }
     network_loss(&cnn,x,target);
-    float saved_output[10];
-    memcpy(saved_output,cnn.O5->y,sizeof(saved_output));
+    double saved_output[10];
+    memcpy(saved_output,cnn.O7.y,sizeof(saved_output));
     float saved_f6_weights[84][120],saved_f6_bias[84];
     for(int j=0;j<84;j++) {
         memcpy(saved_f6_weights[j],cnn.F6->wData[j],sizeof(saved_f6_weights[j]));
@@ -181,7 +175,6 @@ int main(int argc,char** argv)
     for(int i=0;i<16;i++) for(int j=0;j<120;j++)
         for(int r=0;r<5;r++) for(int c=0;c<5;c++) cnn.C5->mapData[i][j][r][c]=99;
     for(int j=0;j<120;j++) cnn.C5->basicData[j]=99;
-    cnn.O5->basicData[0]=99;
     importcnn(&cnn,argv[1]);
     for(int j=0;j<84;j++) {
         for(int k=0;k<120;k++) near(cnn.F6->wData[j][k],saved_f6_weights[j][k],0);
@@ -191,7 +184,7 @@ int main(int argc,char** argv)
         if(!covConnected(cnn.C3,i,j)) for(int r=0;r<5;r++) for(int c=0;c<5;c++)
             near(cnn.C3->mapData[i][j][r][c],0,0);
     network_loss(&cnn,x,target);
-    for(int i=0;i<10;i++) near(cnn.O5->y[i],saved_output[i],1e-6f);
+    for(int i=0;i<10;i++) near(cnn.O7.y[i],saved_output[i],1e-6f);
     /* This short process exits after the network test; legacy CNN has no destructor. */
     puts("PASS: pool forward, input/parameter gradients, updates, S2/S4 integration, model round trip");
     return 0;

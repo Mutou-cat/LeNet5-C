@@ -13,15 +13,11 @@ static float derivative(float y)
     float t=y/1.7159f;
     return 1.7159f*(2.0f/3.0f)*(1-t*t);
 }
-static float loss(CNN* cnn,float** x)
+static double loss(CNN* cnn,float** x)
 {
     cnnclear(cnn); cnnff(cnn,x);
-    float value=0;
-    for(int j=0;j<10;j++) {
-        float e=cnn->O5->y[j]-(j==3 ? 1.0f:0.0f);
-        value+=0.5f*e*e;
-    }
-    return value;
+    float target[10]={0};target[3]=1;
+    return cnnloss(cnn,target);
 }
 int main(void)
 {
@@ -39,7 +35,7 @@ int main(void)
     assert(cnn.C1->isFullConnect && !cnn.C3->isFullConnect);
     assert(cnn.C3->inputWidth==14 && cnn.C3->inputHeight==14);
     assert(cnn.C3->outChannels==16 && cnn.S4->inputWidth==10);
-    assert(cnn.S4->outChannels==16 && cnn.O5->inputNum==84);
+    assert(cnn.S4->outChannels==16 && cnn.F6->outputNum==84);
     for(int i=0;i<6;i++) for(int j=0;j<16;j++) {
         mask[i][j]=false;
         for(int k=0;k<6;k++) if(inputs[j][k]==i) mask[i][j]=true;
@@ -55,8 +51,6 @@ int main(void)
     assert(count==60 && count*25+16==1516);
     for(int j=0;j<6;j++) for(int r=0;r<5;r++) for(int c=0;c<5;c++)
         cnn.C1->mapData[0][j][r][c]=0.09f*cosf((float)(j*25+r*5+c));
-    for(int j=0;j<10;j++) for(int k=0;k<cnn.O5->inputNum;k++)
-        cnn.O5->wData[j][k]=0.06f*cosf((float)(j*cnn.O5->inputNum+k));
     for(int i=0;i<16;i++) for(int j=0;j<120;j++) for(int a=0;a<5;a++) for(int b=0;b<5;b++)
         cnn.C5->mapData[i][j][a][b]=0.04f*sinf((float)(1+i*3000+j*25+a*5+b));
     for(int j=0;j<84;j++) for(int k=0;k<120;k++)
@@ -98,8 +92,8 @@ int main(void)
     float h=0.005f;
     for(int i=0;i<6;i++) for(int j=0;j<16;j++) {
         float* w=&cnn.C3->mapData[i][j][1][3];
-        *w=old[i][j]+h; float plus=loss(&cnn,x);
-        *w=old[i][j]-h; float minus=loss(&cnn,x);
+        *w=old[i][j]+h; double plus=loss(&cnn,x);
+        *w=old[i][j]-h; double minus=loss(&cnn,x);
         *w=old[i][j];
         near(grads[i][j],(plus-minus)/(2*h),0.00004f);
     }

@@ -9,6 +9,7 @@
 #include <time.h>
 #include "mat.h"
 #include "minst.h"
+#include "rbf.h"
 
 
 // 卷积层
@@ -56,7 +57,7 @@ typedef struct pooling_layer{
 	float*** d; // 反传先累加dL/dy，再转换为dL/dz，z=a*sum+b
 }PoolLayer;
 
-// 全连接层：供F6及临时输出层复用
+// 全连接层：F6使用
 typedef struct nn_layer{
 	int inputNum;   //输入数据的数目
 	int outputNum;  //输出数据的数目
@@ -80,9 +81,8 @@ typedef struct cnn_network{
 	PoolLayer* S4;
 	CovLayer* C5; // 16个5×5输入通道 -> 120个1×1输出
 	OutLayer* F6; // C5的120维输出 -> 84维缩放tanh
-	OutLayer* O5; // 临时分类头，接收F6输出；后续由RBF替换
+	RbfLayer O7; // 固定84维模板 -> 10个平方距离
 
-	float* e; // 训练误差
 	float* L; // 瞬时误差能量
 }CNN;
 
@@ -123,6 +123,7 @@ void poolbp(PoolLayer* pool); // 将dL/dy转换为dL/dz，并求a、b的梯度
 void poolapplygrads(PoolLayer* pool,float alpha);
 
 void cnnff(CNN* cnn,float** inputData); // 网络的前向传播
+double cnnloss(const CNN* cnn,const float* outputData); // 当前样本的RBF MAP损失
 void cnnbp(CNN* cnn,float* outputData); // 网络的后向传播
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData);
 void cnnclear(CNN* cnn); // 将数据vyd清零

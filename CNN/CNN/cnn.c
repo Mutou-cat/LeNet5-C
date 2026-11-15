@@ -41,6 +41,9 @@ void CovLayerConnect(CovLayer* layer,const bool* connections)
 
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
+	if(outputSize!=RBF_CLASSES) {
+		fprintf(stderr,"RBF output requires 10 digit classes\n");exit(EXIT_FAILURE);
+	}
 	cnn->layerNum=7;
 
 	nSize inSize;
@@ -68,9 +71,7 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	inSize.c=inSize.c-cnn->C5->mapSize+1;
 	inSize.r=inSize.r-cnn->C5->mapSize+1;
 	cnn->F6=initOutLayer(inSize.c*inSize.r*cnn->C5->outChannels,84);
-	cnn->O5=initOutLayer(cnn->F6->outputNum,outputSize);
-
-	cnn->e=(float*)calloc(cnn->O5->outputNum,sizeof(float));
+	memset(&cnn->O7,0,sizeof(cnn->O7));
 }
 
 CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
@@ -230,7 +231,7 @@ float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 	int incorrectnum=0;  //错误预测的数目
 	for(n=0;n<testNum;n++){
 		cnnff(cnn,inputData->ImgPtr[n].ImgData);
-		if(vecmaxIndex(cnn->O5->y,cnn->O5->outputNum)!=vecmaxIndex(outputData->LabelPtr[n].LabelData,cnn->O5->outputNum))
+		if(rbfPredict(&cnn->O7)!=vecmaxIndex(outputData->LabelPtr[n].LabelData,RBF_CLASSES))
 			incorrectnum++;
 		cnnclear(cnn);
 	}
@@ -238,7 +239,7 @@ float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 }
 
 // 文件版本固定当前的缩放tanh/可训练下采样语义；结构变化时拒绝误加载。
-static const char model_magic[8]={'D','L','C','F','6','V','0','1'};
+static const char model_magic[8]={'D','L','C','R','B','F','0','1'};
 
 static void model_shape(const CNN* cnn,int shape[17])
 {
@@ -252,8 +253,8 @@ static void model_shape(const CNN* cnn,int shape[17])
 	shape[7]=cnn->C3->outChannels;
 	shape[8]=cnn->C3->mapSize;
 	shape[9]=cnn->S4->mapSize;
-	shape[10]=cnn->O5->inputNum;
-	shape[11]=cnn->O5->outputNum;
+	shape[10]=RBF_INPUTS;
+	shape[11]=RBF_CLASSES;
 	shape[12]=cnn->C5->inChannels;
 	shape[13]=cnn->C5->outChannels;
 	shape[14]=cnn->C5->mapSize;
@@ -285,6 +286,32 @@ static void check_connections(const CovLayer* layer,FILE* fp)
 }
 
 // 保存cnn
+// 固定模板也写入并核对，避免不同字模或损失设置静默加载同一权重。
+static void write_rbf_config(FILE* fp)
+{
+	const float reject_cost=(float)RBF_REJECT_COST;
+	write_exact(&reject_cost,sizeof(float),1,fp);
+	for(int j=0;j<RBF_CLASSES;j++) for(int k=0;k<RBF_INPUTS;k++) {
+		unsigned char bit=rbfCenter(j,k)>0 ? 1:0;
+		write_exact(&bit,1,1,fp);
+	}
+}
+static void check_rbf_config(FILE* fp)
+{
+	float reject_cost;
+	read_exact(&reject_cost,sizeof(float),1,fp);
+	if(reject_cost!=(float)RBF_REJECT_COST) {
+		fprintf(stderr,"Model RBF loss configuration does not match\n");exit(EXIT_FAILURE);
+	}
+	for(int j=0;j<RBF_CLASSES;j++) for(int k=0;k<RBF_INPUTS;k++) {
+		unsigned char bit;
+		read_exact(&bit,1,1,fp);
+		if(bit!=(unsigned char)(rbfCenter(j,k)>0)) {
+			fprintf(stderr,"Model RBF templates do not match\n");exit(EXIT_FAILURE);
+		}
+	}
+}
+
 void savecnn(CNN* cnn, const char* filename)
 {
 	FILE  *fp=NULL;
@@ -301,6 +328,7 @@ void savecnn(CNN* cnn, const char* filename)
 	write_connections(cnn->C1,fp);
 	write_connections(cnn->C3,fp);
 	write_connections(cnn->C5,fp);
+	write_rbf_config(fp);
 
 	int i,j,r;
 	// C1的数据
@@ -335,11 +363,6 @@ void savecnn(CNN* cnn, const char* filename)
 		write_exact(cnn->F6->wData[i],sizeof(float),cnn->F6->inputNum,fp);
 	write_exact(cnn->F6->basicData,sizeof(float),cnn->F6->outputNum,fp);
 
-	// O5输出层
-	for(i=0;i<cnn->O5->outputNum;i++)
-		write_exact(cnn->O5->wData[i],sizeof(float),cnn->O5->inputNum,fp);
-	write_exact(cnn->O5->basicData,sizeof(float),cnn->O5->outputNum,fp);
-	// 下采样参数不能遗漏，否则重载后的预测会改变。
 	write_exact(cnn->S2->scaleData,sizeof(float),cnn->S2->outChannels,fp);
 	write_exact(cnn->S2->basicData,sizeof(float),cnn->S2->outChannels,fp);
 	write_exact(cnn->S4->scaleData,sizeof(float),cnn->S4->outChannels,fp);
@@ -361,7 +384,7 @@ void importcnn(CNN* cnn, const char* filename)
 	int expected[17],actual[17];
 	read_exact(magic,1,sizeof(magic),fp);
 	if(memcmp(magic,model_magic,sizeof(magic)) != 0) {
-		fprintf(stderr,"Incompatible model: expected DLCF6V01; retrain for the new network\n");
+		fprintf(stderr,"Incompatible model: expected DLCRBF01; retrain for the new network\n");
 		fclose(fp); exit(EXIT_FAILURE);
 	}
 	model_shape(cnn,expected);
@@ -374,6 +397,7 @@ void importcnn(CNN* cnn, const char* filename)
 	check_connections(cnn->C1,fp);
 	check_connections(cnn->C3,fp);
 	check_connections(cnn->C5,fp);
+	check_rbf_config(fp);
 	CovLayerConnect(cnn->C1,cnn->C1->connectModel);
 	CovLayerConnect(cnn->C3,cnn->C3->connectModel);
 	CovLayerConnect(cnn->C5,cnn->C5->connectModel);
@@ -418,14 +442,6 @@ void importcnn(CNN* cnn, const char* filename)
 		read_exact(cnn->F6->wData[i],sizeof(float),cnn->F6->inputNum,fp);
 	read_exact(cnn->F6->basicData,sizeof(float),cnn->F6->outputNum,fp);
 
-	// O5输出层
-	for(i=0;i<cnn->O5->outputNum;i++)
-		for(j=0;j<cnn->O5->inputNum;j++)
-			read_exact(&cnn->O5->wData[i][j],sizeof(float),1,fp);
-
-	for(i=0;i<cnn->O5->outputNum;i++)
-		read_exact(&cnn->O5->basicData[i],sizeof(float),1,fp);
-
 	read_exact(cnn->S2->scaleData,sizeof(float),cnn->S2->outChannels,fp);
 	read_exact(cnn->S2->basicData,sizeof(float),cnn->S2->outChannels,fp);
 	read_exact(cnn->S4->scaleData,sizeof(float),cnn->S4->outChannels,fp);
@@ -452,21 +468,18 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 		int n=0;
 		for(n=0;n<trainNum;n++){
 			cnnff(cnn,inputData->ImgPtr[n].ImgData);  // 前向传播，这里主要计算各
+			double l=cnnloss(cnn,outputData->LabelPtr[n].LabelData);
 			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 后向传播，这里主要计算各神经元的误差梯度
 
 
 			cnnapplygrads(cnn,opts,inputData->ImgPtr[n].ImgData); // 更新权重
 
 			cnnclear(cnn);
-			// 计算并保存误差能量
-			float l=0.0;
-			int i;
-			for(i=0;i<cnn->O5->outputNum;i++)
-				l=l+cnn->e[i]*cnn->e[i];
+			// 显示与反向传播一致的MAP损失，保留指数平滑。
 			if(n==0)
-				cnn->L[n]=l/(float)2.0;
+				cnn->L[n]=(float)l;
 			else
-				cnn->L[n]=cnn->L[n-1]*0.99+0.01*l/(float)2.0;
+				cnn->L[n]=cnn->L[n-1]*0.99f+0.01f*(float)l;
 			// 首个样本、每 100 个样本及本轮结束时输出平滑损失。
 			if(n==0 || (n+1)%100==0 || n+1==trainNum){
 				printf("Epoch %d/%d | %d/%d (%6.2f%%) | smoothed loss: %.6f\n",
@@ -564,10 +577,7 @@ void cnnff(CNN* cnn,float** inputData)
 	for(i=0;i<cnn->F6->outputNum;i++)
 		cnn->F6->y[i]=activation_Sigma(cnn->F6->v[i],0.0f);
 	free(F6inData);
-	nSize nnSize={cnn->O5->inputNum,cnn->O5->outputNum};
-	nnff(cnn->O5->v,cnn->F6->y,cnn->O5->wData,cnn->O5->basicData,nnSize);
-	for(i=0;i<cnn->O5->outputNum;i++)
-		cnn->O5->y[i]=activation_Sigma(cnn->O5->v[i],0.0f);
+	rbfff(&cnn->O7,cnn->F6->y);
 }
 
 // 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
@@ -649,24 +659,21 @@ void poolapplygrads(PoolLayer* pool,float alpha)
 	}
 }
 
+double cnnloss(const CNN* cnn,const float* outputData)
+{
+	int target=0;
+	for(int j=1;j<RBF_CLASSES;j++) if(outputData[j]>outputData[target]) target=j;
+	return rbfloss(&cnn->O7,target);
+}
+
 void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 {
-	int i,j,c,r; // 将误差保存到网络中
-	for(i=0;i<cnn->O5->outputNum;i++)
-		cnn->e[i]=cnn->O5->y[i]-outputData[i];
-
-	/*从后向前反向计算*/
-	// 输出层O5
-	for(i=0;i<cnn->O5->outputNum;i++)
-		cnn->O5->d[i]=cnn->e[i]*sigma_derivation(cnn->O5->y[i]);
-
-	// O5 -> F6：dL/dz = (W转置 * 下游d) * 激活导数。
-	for(i=0;i<cnn->F6->outputNum;i++) {
-		float dy=0.0f;
-		for(j=0;j<cnn->O5->outputNum;j++)
-			dy+=cnn->O5->d[j]*cnn->O5->wData[j][i];
-		cnn->F6->d[i]=dy*sigma_derivation(cnn->F6->y[i]);
-	}
+	int i,j,c,r;
+	int target=vecmaxIndex(outputData,RBF_CLASSES);
+	// RBF -> F6：先得到dL/d(F6.y)，再乘激活导数得到dL/d(F6.z)。
+	rbfbp(&cnn->O7,cnn->F6->y,target,cnn->F6->d);
+	for(i=0;i<cnn->F6->outputNum;i++)
+		cnn->F6->d[i]*=sigma_derivation(cnn->F6->y[i]);
 
 	// F6 -> C5：先算dL/d(C5.y)，再乘C5的激活导数得到dL/d(C5.z)。
 	nSize outSize={cnn->C5->inputWidth-cnn->C5->mapSize+1,
@@ -822,11 +829,6 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 				}
 		cnn->F6->basicData[j]-=opts.alpha*cnn->F6->d[j];
 	}
-	for(j=0;j<cnn->O5->outputNum;j++) {
-		for(i=0;i<cnn->O5->inputNum;i++)
-			cnn->O5->wData[j][i]-=opts.alpha*cnn->O5->d[j]*cnn->F6->y[i];
-		cnn->O5->basicData[j]-=opts.alpha*cnn->O5->d[j];
-	}
 	poolapplygrads(cnn->S2,opts.alpha);
 	poolapplygrads(cnn->S4,opts.alpha);
 }
@@ -893,12 +895,8 @@ void cnnclear(CNN* cnn)
 		cnn->F6->v[j]=0.0f;
 		cnn->F6->y[j]=0.0f;
 	}
-	// O5输出
-	for(j=0;j<cnn->O5->outputNum;j++){
-		cnn->O5->d[j]=(float)0.0;
-		cnn->O5->v[j]=(float)0.0;
-		cnn->O5->y[j]=(float)0.0;
-	}
+	memset(&cnn->O7,0,sizeof(cnn->O7));
+
 }
 
 // 这是用于测试的函数
@@ -996,13 +994,10 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 	write_exact(cnn->F6->d,sizeof(float),cnn->F6->outputNum,fp);
 	write_exact(cnn->F6->y,sizeof(float),cnn->F6->outputNum,fp);
 
-	// O5输出层
-	for(i=0;i<cnn->O5->outputNum;i++)
-		fwrite(cnn->O5->wData[i],sizeof(float),cnn->O5->inputNum,fp);
-	fwrite(cnn->O5->basicData,sizeof(float),cnn->O5->outputNum,fp);
-	fwrite(cnn->O5->v,sizeof(float),cnn->O5->outputNum,fp);
-	fwrite(cnn->O5->d,sizeof(float),cnn->O5->outputNum,fp);
-	fwrite(cnn->O5->y,sizeof(float),cnn->O5->outputNum,fp);
+	// 固定RBF配置、距离和局部梯度。
+	write_rbf_config(fp);
+	write_exact(cnn->O7.y,sizeof(double),RBF_CLASSES,fp);
+	write_exact(cnn->O7.d,sizeof(double),RBF_CLASSES,fp);
 
 	fclose(fp);
 }
