@@ -195,6 +195,25 @@ float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 	return (float)incorrectnum/(float)testNum;
 }
 
+// 文件版本固定当前的缩放tanh/可训练下采样语义；结构变化时拒绝误加载。
+static const char model_magic[8]={'D','L','C','P','O','O','L','1'};
+
+static void model_shape(const CNN* cnn,int shape[12])
+{
+	shape[0]=cnn->C1->inputWidth;
+	shape[1]=cnn->C1->inputHeight;
+	shape[2]=cnn->C1->inChannels;
+	shape[3]=cnn->C1->outChannels;
+	shape[4]=cnn->C1->mapSize;
+	shape[5]=cnn->S2->mapSize;
+	shape[6]=cnn->C3->inChannels;
+	shape[7]=cnn->C3->outChannels;
+	shape[8]=cnn->C3->mapSize;
+	shape[9]=cnn->S4->mapSize;
+	shape[10]=cnn->O5->inputNum;
+	shape[11]=cnn->O5->outputNum;
+}
+
 // 保存cnn
 void savecnn(CNN* cnn, const char* filename)
 {
@@ -205,29 +224,39 @@ void savecnn(CNN* cnn, const char* filename)
 		exit(EXIT_FAILURE);
 	}
 
+	int shape[12];
+	model_shape(cnn,shape);
+	write_exact(model_magic,1,sizeof(model_magic),fp);
+	write_exact(shape,sizeof(int),12,fp);
+
 	int i,j,r;
 	// C1的数据
 	for(i=0;i<cnn->C1->inChannels;i++)
 		for(j=0;j<cnn->C1->outChannels;j++)
 			for(r=0;r<cnn->C1->mapSize;r++)
-				fwrite(cnn->C1->mapData[i][j][r],sizeof(float),cnn->C1->mapSize,fp);
+				write_exact(cnn->C1->mapData[i][j][r],sizeof(float),cnn->C1->mapSize,fp);
 
-	fwrite(cnn->C1->basicData,sizeof(float),cnn->C1->outChannels,fp);
+	write_exact(cnn->C1->basicData,sizeof(float),cnn->C1->outChannels,fp);
 
 	// C3网络
 	for(i=0;i<cnn->C3->inChannels;i++)
 		for(j=0;j<cnn->C3->outChannels;j++)
 			for(r=0;r<cnn->C3->mapSize;r++)
-				fwrite(cnn->C3->mapData[i][j][r],sizeof(float),cnn->C3->mapSize,fp);
+				write_exact(cnn->C3->mapData[i][j][r],sizeof(float),cnn->C3->mapSize,fp);
 
-	fwrite(cnn->C3->basicData,sizeof(float),cnn->C3->outChannels,fp);
+	write_exact(cnn->C3->basicData,sizeof(float),cnn->C3->outChannels,fp);
 
 	// O5输出层
 	for(i=0;i<cnn->O5->outputNum;i++)
-		fwrite(cnn->O5->wData[i],sizeof(float),cnn->O5->inputNum,fp);
-	fwrite(cnn->O5->basicData,sizeof(float),cnn->O5->outputNum,fp);
+		write_exact(cnn->O5->wData[i],sizeof(float),cnn->O5->inputNum,fp);
+	write_exact(cnn->O5->basicData,sizeof(float),cnn->O5->outputNum,fp);
+	// 下采样参数不能遗漏，否则重载后的预测会改变。
+	write_exact(cnn->S2->scaleData,sizeof(float),cnn->S2->outChannels,fp);
+	write_exact(cnn->S2->basicData,sizeof(float),cnn->S2->outChannels,fp);
+	write_exact(cnn->S4->scaleData,sizeof(float),cnn->S4->outChannels,fp);
+	write_exact(cnn->S4->basicData,sizeof(float),cnn->S4->outChannels,fp);
 
-	fclose(fp);
+	if(fclose(fp) != 0) { perror(filename); exit(EXIT_FAILURE); }
 }
 // 导入cnn的数据
 void importcnn(CNN* cnn, const char* filename)
@@ -237,6 +266,20 @@ void importcnn(CNN* cnn, const char* filename)
 	if(fp==NULL) {
 		perror(filename);
 		exit(EXIT_FAILURE);
+	}
+
+	char magic[8];
+	int expected[12],actual[12];
+	read_exact(magic,1,sizeof(magic),fp);
+	if(memcmp(magic,model_magic,sizeof(magic)) != 0) {
+		fprintf(stderr,"Incompatible model: expected DLCPOOL1; retrain for the new network\n");
+		fclose(fp); exit(EXIT_FAILURE);
+	}
+	model_shape(cnn,expected);
+	read_exact(actual,sizeof(int),12,fp);
+	if(memcmp(actual,expected,sizeof(actual)) != 0) {
+		fprintf(stderr,"Model architecture does not match the current CNN\n");
+		fclose(fp); exit(EXIT_FAILURE);
 	}
 
 	int i,j,c,r;
@@ -268,6 +311,15 @@ void importcnn(CNN* cnn, const char* filename)
 
 	for(i=0;i<cnn->O5->outputNum;i++)
 		read_exact(&cnn->O5->basicData[i],sizeof(float),1,fp);
+
+	read_exact(cnn->S2->scaleData,sizeof(float),cnn->S2->outChannels,fp);
+	read_exact(cnn->S2->basicData,sizeof(float),cnn->S2->outChannels,fp);
+	read_exact(cnn->S4->scaleData,sizeof(float),cnn->S4->outChannels,fp);
+	read_exact(cnn->S4->basicData,sizeof(float),cnn->S4->outChannels,fp);
+	if(fgetc(fp) != EOF) {
+		fprintf(stderr,"Unexpected trailing model data\n");
+		fclose(fp); exit(EXIT_FAILURE);
+	}
 
 	fclose(fp);
 }

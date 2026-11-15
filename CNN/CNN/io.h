@@ -12,4 +12,12 @@ static inline void read_exact(void *buffer, size_t size, size_t count, FILE *fp)
     }
 }
 
+static inline void write_exact(const void *buffer, size_t size, size_t count, FILE *fp)
+{
+    if (fwrite(buffer, size, count, fp) != count) {
+        fprintf(stderr, "Failed to write model file\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
 #endif

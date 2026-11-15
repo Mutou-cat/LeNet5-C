@@ -20,25 +20,18 @@ static int predict(const char *model)
         fprintf(stderr, "Expected exactly 784 grayscale bytes on stdin\n");
         return EXIT_FAILURE;
     }
-    /* The existing model format stores 3898 float parameters, without a header. */
-    FILE *fp = fopen(model, "rb");
-    if (!fp) { perror(model); return EXIT_FAILURE; }
-    int valid_model = fseek(fp, 0, SEEK_END) == 0 &&
-                      ftell(fp) == (long)(3898 * sizeof(float));
-    fclose(fp);
-    if (!valid_model) {
-        fprintf(stderr, "Invalid model size for this CNN\n");
-        return EXIT_FAILURE;
-    }
-    float data[28][28];
-    float *rows[28];
-    for (int r = 0; r < 28; ++r) {
+    /* Keep the raw drawing 28x28; use exactly the same preprocessing as read_Img. */
+    float data[32][32];
+    float *rows[32];
+    for (int r = 0; r < 32; ++r) {
         rows[r] = data[r];
-        for (int c = 0; c < 28; ++c)
-            data[r][c] = pixels[r * 28 + c] / 255.0f;
+        for (int c = 0; c < 32; ++c) data[r][c] = -0.1f;
     }
+    for (int r = 0; r < 28; ++r)
+        for (int c = 0; c < 28; ++c)
+            data[r+2][c+2] = -0.1f + 1.275f * (pixels[r*28+c]/255.0f);
     CNN cnn = {0};
-    nSize size = {28, 28};
+    nSize size = {32, 32};
     cnnsetup(&cnn, size, 10);
     importcnn(&cnn, model);
     cnnff(&cnn, rows);

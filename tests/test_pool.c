@@ -103,8 +103,9 @@ static float network_loss(CNN* cnn,float** x,float* target)
     return loss;
 }
 
-int main(void)
+int main(int argc,char** argv)
 {
+    assert(argc==2);
     check_pool();
     CNN cnn={0}; nSize size={32,32}; cnnsetup(&cnn,size,10);
     /* Fixed weights make this check independent of srand(time(NULL)). */
@@ -155,7 +156,22 @@ int main(void)
         *params[i]=old;
         near(expected[i],(plus-minus)/(2*h),0.0003f);
     }
+    network_loss(&cnn,x,target);
+    float saved_output[10];
+    memcpy(saved_output,cnn.O5->y,sizeof(saved_output));
+    savecnn(&cnn,argv[1]);
+    PoolLayer* pools[]={cnn.S2,cnn.S4};
+    for(int layer=0;layer<2;layer++)
+        for(int i=0;i<pools[layer]->outChannels;i++) {
+            pools[layer]->scaleData[i]=99;
+            pools[layer]->basicData[i]=-99;
+        }
+    cnn.C1->mapData[0][0][0][0]=99;
+    cnn.O5->basicData[0]=99;
+    importcnn(&cnn,argv[1]);
+    network_loss(&cnn,x,target);
+    for(int i=0;i<10;i++) near(cnn.O5->y[i],saved_output[i],1e-6f);
     /* This short process exits after the network test; legacy CNN has no destructor. */
-    puts("PASS: pool forward, input/parameter gradients, updates, S2/S4 integration");
+    puts("PASS: pool forward, input/parameter gradients, updates, S2/S4 integration, model round trip");
     return 0;
 }

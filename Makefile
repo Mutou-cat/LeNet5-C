@@ -33,5 +33,5 @@ TEST_OBJECTS := build/cnn.o build/mat.o build/minst.o
 build/test_pool: tests/test_pool.c $(TEST_OBJECTS) CNN/CNN/cnn.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -ICNN/CNN $< $(TEST_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
 
-test: build/test_pool
-	./build/test_pool
+test: $(TARGET) build/test_pool
+	$(PYTHON) tests/test_model.py
