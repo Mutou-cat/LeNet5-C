@@ -34,7 +34,8 @@ typedef struct MinstLabelArr{
 
 LabelArr read_Lable(const char* filename); // 读入图像标记
 
-ImgArr read_Img(const char* filename); // 读入图像
+// 读取28×28 IDX图片，返回四周填充2像素后的32×32数组，数值范围[-0.1, 1.175]。
+ImgArr read_Img(const char* filename);
 
 void save_Img(ImgArr imgarr,const char* filedir); // 将图像数据保存成文件
 

@@ -13,7 +13,7 @@ int ReverseInt(int i)
 	return ((int)split[0])<<24 | split[1]<<16 | split[2]<<8 | split[3];
 }
 
-ImgArr read_Img(const char* filename) // 读入图像
+ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×32的LeNet-5输入
 {
 	FILE  *fp=NULL;
 	fp=fopen(filename,"rb");
@@ -21,7 +21,6 @@ ImgArr read_Img(const char* filename) // 读入图像
 		perror(filename);
 		exit(EXIT_FAILURE);
 	}
-	assert(fp);
 
 	int magic_number = 0;
 	int number_of_images = 0;
@@ -39,27 +38,49 @@ ImgArr read_Img(const char* filename) // 读入图像
 	//获取训练或测试图像的宽度Width
 	read_exact((char*)&n_cols,sizeof(n_cols),1,fp);
 	n_cols = ReverseInt(n_cols);
-	//获取第i幅图像，保存到vec中
+	if(magic_number != 2051 || number_of_images <= 0 ||
+	   n_rows != 28 || n_cols != 28) {
+		fprintf(stderr,"Expected a nonempty 28x28 MNIST image file: %s\n",filename);
+		fclose(fp);
+		exit(EXIT_FAILURE);
+	}
+
+	// 文件里的尺寸仍为28×28；内存中四周各扩展2个背景像素。
+	const int padding = 2;
+	const int image_rows = n_rows + 2 * padding;
+	const int image_cols = n_cols + 2 * padding;
 	int i,r,c;
 
 	// 图像数组的初始化
 	ImgArr imgarr=(ImgArr)malloc(sizeof(MinstImgArr));
+	if(imgarr == NULL) { perror("malloc"); exit(EXIT_FAILURE); }
 	imgarr->ImgNum=number_of_images;
 	imgarr->ImgPtr=(MinstImg*)malloc(number_of_images*sizeof(MinstImg));
+	if(imgarr->ImgPtr == NULL) { perror("malloc"); exit(EXIT_FAILURE); }
 
 	for(i = 0; i < number_of_images; ++i)
 	{
-		imgarr->ImgPtr[i].r=n_rows;
-		imgarr->ImgPtr[i].c=n_cols;
-		imgarr->ImgPtr[i].ImgData=(float**)malloc(n_rows*sizeof(float*));
+		imgarr->ImgPtr[i].r=image_rows;
+		imgarr->ImgPtr[i].c=image_cols;
+		imgarr->ImgPtr[i].ImgData=(float**)malloc(image_rows*sizeof(float*));
+		if(imgarr->ImgPtr[i].ImgData == NULL) { perror("malloc"); exit(EXIT_FAILURE); }
+		for(r = 0; r < image_rows; ++r) {
+			imgarr->ImgPtr[i].ImgData[r]=(float*)malloc(image_cols*sizeof(float));
+			if(imgarr->ImgPtr[i].ImgData[r] == NULL) { perror("malloc"); exit(EXIT_FAILURE); }
+			for(c = 0; c < image_cols; ++c)
+				imgarr->ImgPtr[i].ImgData[r][c]=-0.1f;
+		}
+
+		// 每张图只读文件中原有的784个像素，避免读取位置错位。
 		for(r = 0; r < n_rows; ++r)
 		{
-			imgarr->ImgPtr[i].ImgData[r]=(float*)malloc(n_cols*sizeof(float));
 			for(c = 0; c < n_cols; ++c)
 			{
 				unsigned char temp = 0;
 				read_exact((char*) &temp, sizeof(temp),1,fp);
-				imgarr->ImgPtr[i].ImgData[r][c]=(float)temp/255.0;
+				// 背景0映射为-0.1，笔画255映射为1.175。
+				imgarr->ImgPtr[i].ImgData[r+padding][c+padding]=
+					-0.1f+1.275f*((float)temp/255.0f);
 			}
 		}
 	}
