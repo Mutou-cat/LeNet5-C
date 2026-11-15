@@ -109,9 +109,9 @@ int main(int argc,char** argv)
     check_pool();
     CNN cnn={0}; nSize size={32,32}; cnnsetup(&cnn,size,10);
     /* Fixed weights make this check independent of srand(time(NULL)). */
-    CovLayer* convs[]={cnn.C1,cnn.C3};
+    CovLayer* convs[]={cnn.C1,cnn.C3,cnn.C5};
     int counter=0;
-    for(int layer=0;layer<2;layer++) {
+    for(int layer=0;layer<3;layer++) {
         CovLayer* p=convs[layer];
         for(int i=0;i<p->inChannels;i++) for(int j=0;j<p->outChannels;j++)
             for(int r=0;r<5;r++) for(int c=0;c<5;c++)
@@ -141,7 +141,7 @@ int main(int argc,char** argv)
     expected[0]=cnn.S2->dscaleData[0]; expected[1]=cnn.S2->dbasicData[0];
     expected[2]=cnn.S4->dscaleData[0]; expected[3]=cnn.S4->dbasicData[0];
     /* Compute selected convolution gradients directly from d and the saved inputs. */
-    for(int layer=0;layer<2;layer++) {
+    for(int layer=0;layer<3;layer++) {
         CovLayer* p=convs[layer]; expected[4+layer]=0;
         for(int r=0;r<p->inputHeight-4;r++) for(int c=0;c<p->inputWidth-4;c++) {
             float input=layer ? cnn.S2->y[0][r+2][c+2] : x[r+2][c+2];

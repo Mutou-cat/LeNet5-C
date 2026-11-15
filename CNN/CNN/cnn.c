@@ -41,7 +41,7 @@ void CovLayerConnect(CovLayer* layer,const bool* connections)
 
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
-	cnn->layerNum=5;
+	cnn->layerNum=6;
 
 	nSize inSize;
 	int mapSize=5;
@@ -64,7 +64,10 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,16,16);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
-	cnn->O5=initOutLayer(inSize.c*inSize.r*cnn->S4->outChannels,outputSize);
+	cnn->C5=initCovLayer(inSize.c,inSize.r,5,cnn->S4->outChannels,120);
+	inSize.c=inSize.c-cnn->C5->mapSize+1;
+	inSize.r=inSize.r-cnn->C5->mapSize+1;
+	cnn->O5=initOutLayer(inSize.c*inSize.r*cnn->C5->outChannels,outputSize);
 
 	cnn->e=(float*)calloc(cnn->O5->outputNum,sizeof(float));
 }
@@ -437,6 +440,28 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 }
 
 // 这里InputData是图像数据，inputData[r][c],r行c列，这里根各权重模板是一致的
+// C5覆盖S4的整个5×5空间。直接用反向下标做数学卷积，避免临时旋转数组。
+static void c5ff(CNN* cnn)
+{
+	CovLayer* layer=cnn->C5;
+	int width=layer->inputWidth-layer->mapSize+1;
+	int height=layer->inputHeight-layer->mapSize+1;
+	for(int o=0;o<layer->outChannels;o++)
+		for(int r=0;r<height;r++)
+			for(int c=0;c<width;c++) {
+				float sum=0.0f;
+				for(int i=0;i<layer->inChannels;i++) {
+					if(!covConnected(layer,i,o)) continue;
+					for(int a=0;a<layer->mapSize;a++)
+						for(int b=0;b<layer->mapSize;b++)
+							sum+=layer->mapData[i][o][a][b]*
+								cnn->S4->y[i][r+layer->mapSize-1-a][c+layer->mapSize-1-b];
+				}
+				layer->v[o][r][c]=sum;
+				layer->y[o][r][c]=activation_Sigma(sum,layer->basicData[o]);
+			}
+}
+
 void cnnff(CNN* cnn,float** inputData)
 {
 	// 第一层的传播
@@ -485,16 +510,17 @@ void cnnff(CNN* cnn,float** inputData)
 
 	// S4采用与S2相同的可训练下采样。
 	poolff(cnn->S4,cnn->C3->y);
-	outSize.c=cnn->S4->inputWidth/cnn->S4->mapSize;
-	outSize.r=cnn->S4->inputHeight/cnn->S4->mapSize;
+	c5ff(cnn);
+	outSize.c=cnn->C5->inputWidth-cnn->C5->mapSize+1;
+	outSize.r=cnn->C5->inputHeight-cnn->C5->mapSize+1;
 
-	// 输出层O5的处理
+	// 临时输出层O5接收C5展平后的120个值
 	// 首先需要将前面的多维输出展开成一维向量
 	float* O5inData=(float*)malloc((cnn->O5->inputNum)*sizeof(float));
-	for(i=0;i<(cnn->S4->outChannels);i++)
+	for(i=0;i<(cnn->C5->outChannels);i++)
 		for(r=0;r<outSize.r;r++)
 			for(c=0;c<outSize.c;c++)
-				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->S4->y[i][r][c];
+				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->C5->y[i][r][c];
 
 	nSize nnSize={cnn->O5->inputNum,cnn->O5->outputNum};
 	nnff(cnn->O5->v,O5inData,cnn->O5->wData,cnn->O5->basicData,nnSize);
@@ -594,16 +620,30 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	for(i=0;i<cnn->O5->outputNum;i++)
 		cnn->O5->d[i]=cnn->e[i]*sigma_derivation(cnn->O5->y[i]);
 
-	// S4层，传递到S4层的误差
-	// 先累加损失对S4输出y的梯度，再通过poolbp转换为对z的梯度。
-	nSize outSize={cnn->S4->inputWidth/cnn->S4->mapSize,cnn->S4->inputHeight/cnn->S4->mapSize};
-	for(i=0;i<cnn->S4->outChannels;i++)
+	// O5 -> C5：先算dL/d(C5.y)，再乘C5的激活导数得到dL/d(C5.z)。
+	nSize outSize={cnn->C5->inputWidth-cnn->C5->mapSize+1,
+		cnn->C5->inputHeight-cnn->C5->mapSize+1};
+	for(i=0;i<cnn->C5->outChannels;i++)
 		for(r=0;r<outSize.r;r++)
-			for(c=0;c<outSize.c;c++)
-				for(j=0;j<cnn->O5->outputNum;j++){
-					int wInt=i*outSize.c*outSize.r+r*outSize.c+c;
-					cnn->S4->d[i][r][c]=cnn->S4->d[i][r][c]+cnn->O5->d[j]*cnn->O5->wData[j][wInt];
-				}
+			for(c=0;c<outSize.c;c++) {
+				float dy=0.0f;
+				int k=i*outSize.r*outSize.c+r*outSize.c+c;
+				for(j=0;j<cnn->O5->outputNum;j++)
+					dy+=cnn->O5->d[j]*cnn->O5->wData[j][k];
+				cnn->C5->d[i][r][c]=dy*sigma_derivation(cnn->C5->y[i][r][c]);
+			}
+
+	// C5 -> S4：按前向的连接位置散加梯度，尚未乘S4激活导数。
+	for(i=0;i<cnn->C5->inChannels;i++)
+		for(j=0;j<cnn->C5->outChannels;j++) {
+			if(!covConnected(cnn->C5,i,j)) continue;
+			for(r=0;r<outSize.r;r++)
+				for(c=0;c<outSize.c;c++)
+					for(int a=0;a<cnn->C5->mapSize;a++)
+						for(int b=0;b<cnn->C5->mapSize;b++)
+							cnn->S4->d[i][r+cnn->C5->mapSize-1-a][c+cnn->C5->mapSize-1-b]+=
+								cnn->C5->d[j][r][c]*cnn->C5->mapData[i][j][a][b];
+		}
 
 	poolbp(cnn->S4);
 
@@ -704,14 +744,34 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 		cnn->C3->basicData[i]=cnn->C3->basicData[i]-opts.alpha*summat(cnn->C3->d[i],dSize);
 	}
 
+	// C5：dL/dW=各输出位置的d乘对应S4输入之和；偏置梯度为d之和。
+	nSize C5out={cnn->C5->inputWidth-cnn->C5->mapSize+1,
+		cnn->C5->inputHeight-cnn->C5->mapSize+1};
+	for(i=0;i<cnn->C5->outChannels;i++) {
+		for(j=0;j<cnn->C5->inChannels;j++) {
+			if(!covConnected(cnn->C5,j,i)) continue;
+			for(int a=0;a<cnn->C5->mapSize;a++)
+				for(int b=0;b<cnn->C5->mapSize;b++) {
+					float grad=0.0f;
+					for(r=0;r<C5out.r;r++)
+						for(c=0;c<C5out.c;c++)
+							grad+=cnn->C5->d[i][r][c]*
+								cnn->S4->y[j][r+cnn->C5->mapSize-1-a][c+cnn->C5->mapSize-1-b];
+					cnn->C5->dmapData[j][i][a][b]=grad;
+					cnn->C5->mapData[j][i][a][b]-=opts.alpha*grad;
+				}
+		}
+		cnn->C5->basicData[i]-=opts.alpha*summat(cnn->C5->d[i],C5out);
+	}
+
 	// 输出层
 	// 首先需要将前面的多维输出展开成一维向量
 	float* O5inData=(float*)malloc((cnn->O5->inputNum)*sizeof(float));
-	nSize outSize={cnn->S4->inputWidth/cnn->S4->mapSize,cnn->S4->inputHeight/cnn->S4->mapSize};
-	for(i=0;i<(cnn->S4->outChannels);i++)
+	nSize outSize=C5out;
+	for(i=0;i<(cnn->C5->outChannels);i++)
 		for(r=0;r<outSize.r;r++)
 			for(c=0;c<outSize.c;c++)
-				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->S4->y[i][r][c];
+				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->C5->y[i][r][c];
 
 	for(j=0;j<cnn->O5->outputNum;j++){
 		for(i=0;i<cnn->O5->inputNum;i++)
@@ -771,6 +831,14 @@ void cnnclear(CNN* cnn)
 			}
 		}
 	}
+	// C5的特征图和局部梯度；参数梯度在每次更新时覆盖。
+	for(j=0;j<cnn->C5->outChannels;j++)
+		for(r=0;r<cnn->C5->inputHeight-cnn->C5->mapSize+1;r++)
+			for(c=0;c<cnn->C5->inputWidth-cnn->C5->mapSize+1;c++) {
+				cnn->C5->v[j][r][c]=0.0f;
+				cnn->C5->y[j][r][c]=0.0f;
+				cnn->C5->d[j][r][c]=0.0f;
+			}
 	// O5输出
 	for(j=0;j<cnn->O5->outputNum;j++){
 		cnn->O5->d[j]=(float)0.0;
@@ -851,6 +919,20 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 			fwrite(cnn->S4->y[j][r],sizeof(float),cnn->S4->inputWidth/cnn->S4->mapSize,fp);
 		}
 	}
+
+	// C5网络：权重、偏置及v/d/y。
+	for(i=0;i<cnn->C5->inChannels;i++)
+		for(j=0;j<cnn->C5->outChannels;j++)
+			for(r=0;r<cnn->C5->mapSize;r++)
+				write_exact(cnn->C5->mapData[i][j][r],sizeof(float),cnn->C5->mapSize,fp);
+	write_exact(cnn->C5->basicData,sizeof(float),cnn->C5->outChannels,fp);
+	for(j=0;j<cnn->C5->outChannels;j++)
+		for(r=0;r<cnn->C5->inputHeight-cnn->C5->mapSize+1;r++) {
+			int width=cnn->C5->inputWidth-cnn->C5->mapSize+1;
+			write_exact(cnn->C5->v[j][r],sizeof(float),width,fp);
+			write_exact(cnn->C5->d[j][r],sizeof(float),width,fp);
+			write_exact(cnn->C5->y[j][r],sizeof(float),width,fp);
+		}
 
 	// O5输出层
 	for(i=0;i<cnn->O5->outputNum;i++)

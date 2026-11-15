@@ -39,7 +39,11 @@ build/test_sparse: tests/test_sparse.c $(TEST_OBJECTS) CNN/CNN/cnn.h | build
 build/test_output: tests/test_output.c $(TEST_OBJECTS) CNN/CNN/cnn.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -ICNN/CNN $< $(TEST_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
 
-test: $(TARGET) build/test_pool build/test_sparse build/test_output
+build/test_c5: tests/test_c5.c $(TEST_OBJECTS) CNN/CNN/cnn.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -ICNN/CNN $< $(TEST_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+
+test: $(TARGET) build/test_pool build/test_sparse build/test_output build/test_c5
+	./build/test_c5
 	./build/test_output
 	./build/test_sparse
 	$(PYTHON) tests/test_model.py

@@ -78,7 +78,8 @@ typedef struct cnn_network{
 	PoolLayer* S2;
 	CovLayer* C3;
 	PoolLayer* S4;
-	OutLayer* O5;
+	CovLayer* C5; // 16个5×5输入通道 -> 120个1×1输出
+	OutLayer* O5; // 临时分类头，接收C5输出；后续由F6和RBF替换
 
 	float* e; // 训练误差
 	float* L; // 瞬时误差能量
