@@ -56,7 +56,7 @@ typedef struct pooling_layer{
 	float*** d; // 反传先累加dL/dy，再转换为dL/dz，z=a*sum+b
 }PoolLayer;
 
-// 输出层 全连接的神经网络
+// 全连接层：供F6及临时输出层复用
 typedef struct nn_layer{
 	int inputNum;   //输入数据的数目
 	int outputNum;  //输出数据的数目
@@ -79,7 +79,8 @@ typedef struct cnn_network{
 	CovLayer* C3;
 	PoolLayer* S4;
 	CovLayer* C5; // 16个5×5输入通道 -> 120个1×1输出
-	OutLayer* O5; // 临时分类头，接收C5输出；后续由F6和RBF替换
+	OutLayer* F6; // C5的120维输出 -> 84维缩放tanh
+	OutLayer* O5; // 临时分类头，接收F6输出；后续由RBF替换
 
 	float* e; // 训练误差
 	float* L; // 瞬时误差能量

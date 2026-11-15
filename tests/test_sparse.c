@@ -39,7 +39,7 @@ int main(void)
     assert(cnn.C1->isFullConnect && !cnn.C3->isFullConnect);
     assert(cnn.C3->inputWidth==14 && cnn.C3->inputHeight==14);
     assert(cnn.C3->outChannels==16 && cnn.S4->inputWidth==10);
-    assert(cnn.S4->outChannels==16 && cnn.O5->inputNum==120);
+    assert(cnn.S4->outChannels==16 && cnn.O5->inputNum==84);
     for(int i=0;i<6;i++) for(int j=0;j<16;j++) {
         mask[i][j]=false;
         for(int k=0;k<6;k++) if(inputs[j][k]==i) mask[i][j]=true;
@@ -59,6 +59,8 @@ int main(void)
         cnn.O5->wData[j][k]=0.06f*cosf((float)(j*cnn.O5->inputNum+k));
     for(int i=0;i<16;i++) for(int j=0;j<120;j++) for(int a=0;a<5;a++) for(int b=0;b<5;b++)
         cnn.C5->mapData[i][j][a][b]=0.04f*sinf((float)(1+i*3000+j*25+a*5+b));
+    for(int j=0;j<84;j++) for(int k=0;k<120;k++)
+        cnn.F6->wData[j][k]=0.06f*sinf((float)(j*120+k+1));
     float data[32][32],*x[32],target[10]={0};target[3]=1;
     for(int r=0;r<32;r++) {
         x[r]=data[r];

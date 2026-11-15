@@ -41,7 +41,7 @@ void CovLayerConnect(CovLayer* layer,const bool* connections)
 
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
-	cnn->layerNum=6;
+	cnn->layerNum=7;
 
 	nSize inSize;
 	int mapSize=5;
@@ -67,7 +67,8 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->C5=initCovLayer(inSize.c,inSize.r,5,cnn->S4->outChannels,120);
 	inSize.c=inSize.c-cnn->C5->mapSize+1;
 	inSize.r=inSize.r-cnn->C5->mapSize+1;
-	cnn->O5=initOutLayer(inSize.c*inSize.r*cnn->C5->outChannels,outputSize);
+	cnn->F6=initOutLayer(inSize.c*inSize.r*cnn->C5->outChannels,84);
+	cnn->O5=initOutLayer(cnn->F6->outputNum,outputSize);
 
 	cnn->e=(float*)calloc(cnn->O5->outputNum,sizeof(float));
 }
@@ -540,20 +541,21 @@ void cnnff(CNN* cnn,float** inputData)
 	outSize.c=cnn->C5->inputWidth-cnn->C5->mapSize+1;
 	outSize.r=cnn->C5->inputHeight-cnn->C5->mapSize+1;
 
-	// 临时输出层O5接收C5展平后的120个值
-	// 首先需要将前面的多维输出展开成一维向量
-	float* O5inData=(float*)malloc((cnn->O5->inputNum)*sizeof(float));
-	for(i=0;i<(cnn->C5->outChannels);i++)
+	// C5展平后输入F6，nnff包含偏置，激活时不再重复添加。
+	float* F6inData=(float*)malloc(cnn->F6->inputNum*sizeof(float));
+	for(i=0;i<cnn->C5->outChannels;i++)
 		for(r=0;r<outSize.r;r++)
 			for(c=0;c<outSize.c;c++)
-				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->C5->y[i][r][c];
-
+				F6inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->C5->y[i][r][c];
+	nSize f6Size={cnn->F6->inputNum,cnn->F6->outputNum};
+	nnff(cnn->F6->v,F6inData,cnn->F6->wData,cnn->F6->basicData,f6Size);
+	for(i=0;i<cnn->F6->outputNum;i++)
+		cnn->F6->y[i]=activation_Sigma(cnn->F6->v[i],0.0f);
+	free(F6inData);
 	nSize nnSize={cnn->O5->inputNum,cnn->O5->outputNum};
-	nnff(cnn->O5->v,O5inData,cnn->O5->wData,cnn->O5->basicData,nnSize);
+	nnff(cnn->O5->v,cnn->F6->y,cnn->O5->wData,cnn->O5->basicData,nnSize);
 	for(i=0;i<cnn->O5->outputNum;i++)
-		// nnff已加过偏置，这里只执行激活，保证偏置梯度为d。
 		cnn->O5->y[i]=activation_Sigma(cnn->O5->v[i],0.0f);
-	free(O5inData);
 }
 
 // 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
@@ -646,7 +648,15 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	for(i=0;i<cnn->O5->outputNum;i++)
 		cnn->O5->d[i]=cnn->e[i]*sigma_derivation(cnn->O5->y[i]);
 
-	// O5 -> C5：先算dL/d(C5.y)，再乘C5的激活导数得到dL/d(C5.z)。
+	// O5 -> F6：dL/dz = (W转置 * 下游d) * 激活导数。
+	for(i=0;i<cnn->F6->outputNum;i++) {
+		float dy=0.0f;
+		for(j=0;j<cnn->O5->outputNum;j++)
+			dy+=cnn->O5->d[j]*cnn->O5->wData[j][i];
+		cnn->F6->d[i]=dy*sigma_derivation(cnn->F6->y[i]);
+	}
+
+	// F6 -> C5：先算dL/d(C5.y)，再乘C5的激活导数得到dL/d(C5.z)。
 	nSize outSize={cnn->C5->inputWidth-cnn->C5->mapSize+1,
 		cnn->C5->inputHeight-cnn->C5->mapSize+1};
 	for(i=0;i<cnn->C5->outChannels;i++)
@@ -654,8 +664,8 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 			for(c=0;c<outSize.c;c++) {
 				float dy=0.0f;
 				int k=i*outSize.r*outSize.c+r*outSize.c+c;
-				for(j=0;j<cnn->O5->outputNum;j++)
-					dy+=cnn->O5->d[j]*cnn->O5->wData[j][k];
+				for(j=0;j<cnn->F6->outputNum;j++)
+					dy+=cnn->F6->d[j]*cnn->F6->wData[j][k];
 				cnn->C5->d[i][r][c]=dy*sigma_derivation(cnn->C5->y[i][r][c]);
 			}
 
@@ -790,23 +800,23 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 		cnn->C5->basicData[i]-=opts.alpha*summat(cnn->C5->d[i],C5out);
 	}
 
-	// 输出层
-	// 首先需要将前面的多维输出展开成一维向量
-	float* O5inData=(float*)malloc((cnn->O5->inputNum)*sizeof(float));
-	nSize outSize=C5out;
-	for(i=0;i<(cnn->C5->outChannels);i++)
-		for(r=0;r<outSize.r;r++)
-			for(c=0;c<outSize.c;c++)
-				O5inData[i*outSize.r*outSize.c+r*outSize.c+c]=cnn->C5->y[i][r][c];
-
-	for(j=0;j<cnn->O5->outputNum;j++){
+	// F6权重梯度为d乘C5输出，偏置梯度就是d。
+	for(j=0;j<cnn->F6->outputNum;j++) {
+		for(i=0;i<cnn->C5->outChannels;i++)
+			for(r=0;r<C5out.r;r++)
+				for(c=0;c<C5out.c;c++) {
+					int k=i*C5out.r*C5out.c+r*C5out.c+c;
+					cnn->F6->wData[j][k]-=opts.alpha*cnn->F6->d[j]*cnn->C5->y[i][r][c];
+				}
+		cnn->F6->basicData[j]-=opts.alpha*cnn->F6->d[j];
+	}
+	for(j=0;j<cnn->O5->outputNum;j++) {
 		for(i=0;i<cnn->O5->inputNum;i++)
-			cnn->O5->wData[j][i]=cnn->O5->wData[j][i]-opts.alpha*cnn->O5->d[j]*O5inData[i];
-		cnn->O5->basicData[j]=cnn->O5->basicData[j]-opts.alpha*cnn->O5->d[j];
+			cnn->O5->wData[j][i]-=opts.alpha*cnn->O5->d[j]*cnn->F6->y[i];
+		cnn->O5->basicData[j]-=opts.alpha*cnn->O5->d[j];
 	}
 	poolapplygrads(cnn->S2,opts.alpha);
 	poolapplygrads(cnn->S4,opts.alpha);
-	free(O5inData);
 }
 
 void cnnclear(CNN* cnn)
@@ -865,6 +875,12 @@ void cnnclear(CNN* cnn)
 				cnn->C5->y[j][r][c]=0.0f;
 				cnn->C5->d[j][r][c]=0.0f;
 			}
+	// F6中间结果每个样本结束后清零。
+	for(j=0;j<cnn->F6->outputNum;j++) {
+		cnn->F6->d[j]=0.0f;
+		cnn->F6->v[j]=0.0f;
+		cnn->F6->y[j]=0.0f;
+	}
 	// O5输出
 	for(j=0;j<cnn->O5->outputNum;j++){
 		cnn->O5->d[j]=(float)0.0;
@@ -959,6 +975,14 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 			write_exact(cnn->C5->d[j][r],sizeof(float),width,fp);
 			write_exact(cnn->C5->y[j][r],sizeof(float),width,fp);
 		}
+
+	// F6权重、偏置及中间结果。
+	for(i=0;i<cnn->F6->outputNum;i++)
+		write_exact(cnn->F6->wData[i],sizeof(float),cnn->F6->inputNum,fp);
+	write_exact(cnn->F6->basicData,sizeof(float),cnn->F6->outputNum,fp);
+	write_exact(cnn->F6->v,sizeof(float),cnn->F6->outputNum,fp);
+	write_exact(cnn->F6->d,sizeof(float),cnn->F6->outputNum,fp);
+	write_exact(cnn->F6->y,sizeof(float),cnn->F6->outputNum,fp);
 
 	// O5输出层
 	for(i=0;i<cnn->O5->outputNum;i++)

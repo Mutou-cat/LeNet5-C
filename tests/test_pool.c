@@ -121,6 +121,8 @@ int main(int argc,char** argv)
         cnn.O5->wData[i][j]=0.07f*cosf((float)++counter);
     for(int i=0;i<cnn.S2->outChannels;i++) cnn.S2->basicData[i]=0.02f;
     for(int i=0;i<cnn.S4->outChannels;i++) cnn.S4->scaleData[i]=0.2f;
+    for(int j=0;j<84;j++) for(int k=0;k<120;k++)
+        cnn.F6->wData[j][k]=0.06f*sinf((float)(j*120+k+1));
     float data[32][32],*x[32],target[10]={0}; target[3]=1;
     for(int r=0;r<32;r++) {
         x[r]=data[r];
