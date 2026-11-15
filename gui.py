@@ -70,7 +70,7 @@ class DigitApp:
         self.model_entry.pack(side='left', fill='x', expand=True)
         self.choose_button = ttk.Button(model_frame, text='选择…', command=self.choose_model)
         self.choose_button.pack(side='left', padx=(8, 0))
-        ttk.Label(frame, text='各类别输出分数（缩放 tanh，不是概率）').grid(
+        ttk.Label(frame, text='各类别平方距离（越小越匹配，不是概率）').grid(
             row=6, column=0, columnspan=2, sticky='w', pady=(12, 4))
         self.chart = tk.Canvas(frame, width=470, height=122, bg='#f4f5f7', highlightthickness=0)
         self.chart.grid(row=7, column=0, columnspan=2)
@@ -148,12 +148,15 @@ class DigitApp:
 
     def show_scores(self, scores, best=None):
         self.chart.delete('all')
-        self.chart.create_line(0, 58, 470, 58, fill='#cccccc')
+        self.chart.create_line(0, 92, 470, 92, fill='#cccccc')
+        # 距离不再受tanh范围限制；按本次最大距离缩放柱高。
+        maximum = max(max(scores, default=0), 1)
         for i, score in enumerate(scores):
             x = 10 + i * 46
             color = '#167d70' if i == best else '#9eaebb'
-            self.chart.create_rectangle(x, 58 - score * 20, x + 30, 58, fill=color, outline='')
-            self.chart.create_text(x + 15, 13, text=f'{score:.3f}', font=('', 9))
+            self.chart.create_rectangle(x, 92 - score / maximum * 60, x + 30, 92,
+                                        fill=color, outline='')
+            self.chart.create_text(x + 15, 13, text=f'{score:.1f}', font=('', 9))
             self.chart.create_text(x + 15, 104, text=str(i), font=('', 11, 'bold'))
 
     def set_busy(self, busy):
