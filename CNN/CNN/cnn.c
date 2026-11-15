@@ -208,7 +208,7 @@ OutLayer* initOutLayer(int inputNum,int outputNum)
 int vecmaxIndex(float* vec, int veclength)// 返回向量最大数的序号
 {
 	int i;
-	float maxnum=-1.0;
+	float maxnum=vec[0];
 	int maxIndex=0;
 	for(i=0;i<veclength;i++){
 		if(maxnum<vec[i]){
@@ -499,7 +499,8 @@ void cnnff(CNN* cnn,float** inputData)
 	nSize nnSize={cnn->O5->inputNum,cnn->O5->outputNum};
 	nnff(cnn->O5->v,O5inData,cnn->O5->wData,cnn->O5->basicData,nnSize);
 	for(i=0;i<cnn->O5->outputNum;i++)
-		cnn->O5->y[i]=activation_Sigma(cnn->O5->v[i],cnn->O5->basicData[i]);
+		// nnff已加过偏置，这里只执行激活，保证偏置梯度为d。
+		cnn->O5->y[i]=activation_Sigma(cnn->O5->v[i],0.0f);
 	free(O5inData);
 }
 
