@@ -7,6 +7,38 @@
 #include <time.h>
 #include "cnn.h"
 
+// LeNet-5论文Table I：每行对应一个C3输出通道，列出其S2输入通道。
+// 位k=1表示连接输入通道k；输出0..5连3路，6..14连4路，15连6路。
+static const unsigned char c3_connections[16]={
+	0x07,0x0e,0x1c,0x38,0x31,0x23,
+	0x0f,0x1e,0x3c,0x39,0x33,0x27,
+	0x1b,0x36,0x2d,0x3f
+};
+
+bool covConnected(const CovLayer* layer,int input,int output)
+{
+	return layer->connectModel[input*layer->outChannels+output];
+}
+
+// 拷贝连接表；保留四维数组寻址，断开的权重槽清零且不参与运算。
+void CovLayerConnect(CovLayer* layer,const bool* connections)
+{
+	layer->isFullConnect=true;
+	for(int i=0;i<layer->inChannels;i++)
+		for(int j=0;j<layer->outChannels;j++) {
+			bool connected=connections[i*layer->outChannels+j];
+			layer->connectModel[i*layer->outChannels+j]=connected;
+			if(!connected) {
+				layer->isFullConnect=false;
+				for(int r=0;r<layer->mapSize;r++)
+					for(int c=0;c<layer->mapSize;c++) {
+						layer->mapData[i][j][r][c]=0.0f;
+						layer->dmapData[i][j][r][c]=0.0f;
+					}
+			}
+		}
+}
+
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
 	cnn->layerNum=5;
@@ -21,13 +53,18 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->S2=initPoolLayer(inSize.c,inSize.r,2,6,6);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
-	cnn->C3=initCovLayer(inSize.c,inSize.r,5,6,12);
+	cnn->C3=initCovLayer(inSize.c,inSize.r,5,6,16);
+	bool connections[6*16];
+	for(int i=0;i<6;i++)
+		for(int j=0;j<16;j++)
+			connections[i*16+j]=(c3_connections[j] & (1u<<i)) != 0;
+	CovLayerConnect(cnn->C3,connections);
 	inSize.c=inSize.c-mapSize+1;
 	inSize.r=inSize.r-mapSize+1;
-	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,12,12);
+	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,16,16);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
-	cnn->O5=initOutLayer(inSize.c*inSize.r*12,outputSize);
+	cnn->O5=initOutLayer(inSize.c*inSize.r*cnn->S4->outChannels,outputSize);
 
 	cnn->e=(float*)calloc(cnn->O5->outputNum,sizeof(float));
 }
@@ -43,7 +80,9 @@ CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels
 	covL->inChannels=inChannels;
 	covL->outChannels=outChannels;
 
-	covL->isFullConnect=true; // 默认为全连接
+	covL->isFullConnect=true; // 默认所有输入/输出通道连接，C3随后设置部分连接
+	covL->connectModel=(bool*)malloc(inChannels*outChannels*sizeof(bool));
+	for(int k=0;k<inChannels*outChannels;k++) covL->connectModel[k]=true;
 
 	// 权重空间的初始化，先行再列调用，[r][c]
 	int i,j,c,r;
@@ -374,6 +413,7 @@ void cnnff(CNN* cnn,float** inputData)
 	nSize outSize={cnn->S2->inputWidth,cnn->S2->inputHeight};
 	for(i=0;i<(cnn->C1->outChannels);i++){
 		for(j=0;j<(cnn->C1->inChannels);j++){
+			if(!covConnected(cnn->C1,j,i)) continue;
 			float** mapout=cov(cnn->C1->mapData[j][i],mapSize,inputData,inSize,valid);
 			addmat(cnn->C1->v[i],cnn->C1->v[i],outSize,mapout,outSize);
 			for(r=0;r<outSize.r;r++)
@@ -388,7 +428,7 @@ void cnnff(CNN* cnn,float** inputData)
 	// S2：窗口求和、乘每通道系数、加偏置、缩放tanh。
 	poolff(cnn->S2,cnn->C1->y);
 
-	// 第三层输出传播,这里是全连接
+	// C3部分连接：仅汇总连接表中指定的S2通道。
 	outSize.c=cnn->S4->inputWidth;
 	outSize.r=cnn->S4->inputHeight;
 	inSize.c=cnn->C3->inputWidth;
@@ -397,6 +437,7 @@ void cnnff(CNN* cnn,float** inputData)
 	mapSize.r=cnn->C3->mapSize;
 	for(i=0;i<(cnn->C3->outChannels);i++){
 		for(j=0;j<(cnn->C3->inChannels);j++){
+			if(!covConnected(cnn->C3,j,i)) continue;
 			float** mapout=cov(cnn->C3->mapData[j][i],mapSize,cnn->S2->y[j],inSize,valid);
 			addmat(cnn->C3->v[i],cnn->C3->v[i],outSize,mapout,outSize);
 			for(r=0;r<outSize.r;r++)
@@ -546,13 +587,14 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	}
 
 	// S2层：先累加dL/dy，再反传其缩放tanh。
-	// 由卷积层传递给采样层的误差梯度，这里卷积层共有6*12个卷积模板
+	// 只沿C3的60组有效通道连接，将梯度传回S2。
 	outSize.c=cnn->C3->inputWidth;
 	outSize.r=cnn->C3->inputHeight;
 	nSize inSize={cnn->S4->inputWidth,cnn->S4->inputHeight};
 	nSize mapSize={cnn->C3->mapSize,cnn->C3->mapSize};
 	for(i=0;i<cnn->S2->outChannels;i++){
 		for(j=0;j<cnn->C3->outChannels;j++){
+			if(!covConnected(cnn->C3,i,j)) continue;
 			float** corr=correlation(cnn->C3->mapData[i][j],mapSize,cnn->C3->d[j],inSize,full);
 			addmat(cnn->S2->d[i],cnn->S2->d[i],outSize,corr,outSize);
 			for(r=0;r<outSize.r;r++)
@@ -588,6 +630,7 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 
 	for(i=0;i<cnn->C1->outChannels;i++){
 		for(j=0;j<cnn->C1->inChannels;j++){
+			if(!covConnected(cnn->C1,j,i)) continue;
 			float** flipinputData=rotate180(inputData,ySize);
 			float** C1dk=cov(cnn->C1->d[i],dSize,flipinputData,ySize,valid);
 			multifactor(C1dk,C1dk,mapSize,-1*opts.alpha);
@@ -611,6 +654,7 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 	mapSize.r=cnn->C3->mapSize;
 	for(i=0;i<cnn->C3->outChannels;i++){
 		for(j=0;j<cnn->C3->inChannels;j++){
+			if(!covConnected(cnn->C3,j,i)) continue;
 			float** flipinputData=rotate180(cnn->S2->y[j],ySize);
 			float** C3dk=cov(cnn->C3->d[i],dSize,flipinputData,ySize,valid);
 			multifactor(C3dk,C3dk,mapSize,-1.0*opts.alpha);

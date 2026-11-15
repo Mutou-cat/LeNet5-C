@@ -20,16 +20,14 @@ typedef struct convolutional_layer{
 	int inChannels;   //输入图像的数目
 	int outChannels;  //输出图像的数目
 
-	// 关于特征模板的权重分布，这里是一个四维数组
-	// 其大小为inChannels*outChannels*mapSize*mapSize大小
-	// 这里用四维数组，主要是为了表现全连接的形式，实际上卷积层并没有用到全连接的形式
-	// 这里的例子是DeapLearningToolboox里的CNN例子，其用到就是全连接
+	// 四维权重按[输入通道][输出通道][行][列]寻址。
+	// 部分连接保留完整存储槽；无效槽不参与前向、反向和更新。
 	float**** mapData;     //存放特征模块的数据
 	float**** dmapData;    //存放特征模块的数据的局部梯度
 
 	float* basicData;   //偏置，偏置的大小，为outChannels
 	bool isFullConnect; //是否为全连接
-	bool* connectModel; //连接模式（默认为全连接）
+	bool* connectModel; // [输入通道*outChannels+输出通道]，true为有效连接
 
 	// 下面三者的大小同输出的维度相同
 	float*** v; // 进入激活函数的输入值
@@ -107,7 +105,8 @@ void importcnn(CNN* cnn, const char* filename);
 
 // 初始化卷积层
 CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels);
-void CovLayerConnect(CovLayer* covL,bool* connectModel);
+void CovLayerConnect(CovLayer* covL,const bool* connectModel);
+bool covConnected(const CovLayer* layer,int input,int output);
 // 初始化采样层
 PoolLayer* initPoolLayer(int inputWidth,int inputHeigh,int mapSize,int inChannels,int outChannels);
 void PoolLayerConnect(PoolLayer* poolL,bool* connectModel);
