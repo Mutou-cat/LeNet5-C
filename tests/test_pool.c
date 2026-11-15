@@ -169,6 +169,9 @@ int main(int argc,char** argv)
     cnn.C1->mapData[0][0][0][0]=99;
     cnn.O5->basicData[0]=99;
     importcnn(&cnn,argv[1]);
+    for(int i=0;i<cnn.C3->inChannels;i++) for(int j=0;j<cnn.C3->outChannels;j++)
+        if(!covConnected(cnn.C3,i,j)) for(int r=0;r<5;r++) for(int c=0;c<5;c++)
+            near(cnn.C3->mapData[i][j][r][c],0,0);
     network_loss(&cnn,x,target);
     for(int i=0;i<10;i++) near(cnn.O5->y[i],saved_output[i],1e-6f);
     /* This short process exits after the network test; legacy CNN has no destructor. */

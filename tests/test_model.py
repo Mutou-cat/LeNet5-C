@@ -20,11 +20,16 @@ with tempfile.TemporaryDirectory() as folder:
     subprocess.run([str(ROOT / 'build/test_pool'), str(checkpoint)], check=True)
     raw = bytes(i % 256 for i in range(784))
     good = checkpoint.read_bytes()
-    assert good[:8] == b'DLCPOOL1'
+    assert good[:8] == b'DLCSPC01'
     assert predict(checkpoint, raw).returncode == 0
     wrong_shape = bytearray(good)
     wrong_shape[8:12] = struct.pack('=i', 28)
+    wrong_connections = bytearray(good)
+    wrong_connections[8+12*struct.calcsize('=i')+6] ^= 1
+    assert len(good) == 8+12*struct.calcsize('=i')+6+96+5726*4
     for label, data, message in [
+        ('previous', b'DLCPOOL1'+good[8:], b'Incompatible model'),
+        ('connections', wrong_connections, b'connection table'),
         ('old', bytes(15592), b'Incompatible model'),
         ('shape', wrong_shape, b'architecture'),
         ('truncated', good[:-4], b'truncated'),
@@ -55,4 +60,4 @@ with tempfile.TemporaryDirectory() as folder:
     result = subprocess.run([str(BIN), 'test', str(images), str(labels), str(trained)],
                             check=True, capture_output=True, text=True)
     assert f'error rate: {wrong * 50:.2f}%' in result.stdout, result.stdout
-    print('PASS: version/shape/truncation rejection; train/save/test/predict preprocessing agreement')
+    print('PASS: version/shape/connections/truncation rejection; train/save/test/predict preprocessing agreement')
