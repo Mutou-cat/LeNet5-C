@@ -454,25 +454,6 @@ void poolff(PoolLayer* pool,float*** input)
 			}
 }
 
-void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize) // 求平均值
-{
-	int outputW=inputSize.c/mapSize;
-	int outputH=inputSize.r/mapSize;
-	if(outputSize.c!=outputW||outputSize.r!=outputH)
-		printf("ERROR: output size is wrong!!");
-
-	int i,j,m,n;
-	for(i=0;i<outputH;i++)
-		for(j=0;j<outputW;j++)
-		{
-			float sum=0.0;
-			for(m=i*mapSize;m<i*mapSize+mapSize;m++)
-				for(n=j*mapSize;n<j*mapSize+mapSize;n++)
-					sum=sum+input[m][n];
-
-			output[i][j]=sum/(float)(mapSize*mapSize);
-		}
-}
 
 // 单层全连接神经网络的前向传播
 float vecMulti(float* vec1,float* vec2,int vecL)// 两向量相乘

@@ -127,14 +127,6 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData);
 void cnnclear(CNN* cnn); // 将数据vyd清零
 
 /*
-	Pooling Function
-	input 输入数据
-	inputNum 输入数据数目
-	mapSize 求平均的模块区域
-*/
-void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize); // 求平均值
-
-/*
 	单层全连接神经网络的处理
 	nnSize是网络的大小
 */
