@@ -108,18 +108,26 @@ PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChanne
 	poolL->outChannels=outChannels;
 	poolL->poolType=poolType;
 
+	poolL->scaleData=(float*)malloc(outChannels*sizeof(float));
 	poolL->basicData=(float*)calloc(outChannels,sizeof(float));
+	poolL->dscaleData=(float*)calloc(outChannels,sizeof(float));
+	poolL->dbasicData=(float*)calloc(outChannels,sizeof(float));
+	for(int channel=0;channel<outChannels;channel++)
+		poolL->scaleData[channel]=1.0f/(mapSize*mapSize);
 
 	int outW=inputWidth/mapSize;
 	int outH=inputHeight/mapSize;
 
 	int j,r;
+	poolL->sumData=(float***)malloc(outChannels*sizeof(float**));
 	poolL->d=(float***)malloc(outChannels*sizeof(float**));
 	poolL->y=(float***)malloc(outChannels*sizeof(float**));
 	for(j=0;j<outChannels;j++){
+		poolL->sumData[j]=(float**)malloc(outH*sizeof(float*));
 		poolL->d[j]=(float**)malloc(outH*sizeof(float*));
 		poolL->y[j]=(float**)malloc(outH*sizeof(float*));
 		for(r=0;r<outH;r++){
+			poolL->sumData[j][r]=(float*)calloc(outW,sizeof(float));
 			poolL->d[j][r]=(float*)calloc(outW,sizeof(float));
 			poolL->y[j][r]=(float*)calloc(outW,sizeof(float));
 		}

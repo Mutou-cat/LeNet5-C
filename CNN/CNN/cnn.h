@@ -52,10 +52,14 @@ typedef struct pooling_layer{
 	int outChannels;  //输出图像的数目
 
 	int poolType;     //Pooling的方法
-	float* basicData;   //偏置
+	float* scaleData;   // 每通道的可训练缩放系数a
+	float* basicData;   // 每通道共享的偏置b
+	float* dscaleData;  // 损失对a的梯度
+	float* dbasicData;  // 损失对b的梯度
 
-	float*** y; // 采样函数后神经元的输出,无激活函数
-	float*** d; // 网络的局部梯度,δ值
+	float*** sumData; // 每个窗口的输入之和，用于计算缩放系数梯度
+	float*** y; // y=f(a*sum+b)，f为缩放tanh
+	float*** d; // 反传先累加dL/dy，再转换为dL/dz，z=a*sum+b
 }PoolLayer;
 
 // 输出层 全连接的神经网络
