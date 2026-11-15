@@ -97,7 +97,7 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize);
 	inputData，outputData分别存入训练数据
 	dataNum表明数据数目
 */
-void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum);
+void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum,FILE* log); // log可为NULL；否则同步记录进度和耗时
 // 测试cnn函数
 float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum);
 // 保存cnn

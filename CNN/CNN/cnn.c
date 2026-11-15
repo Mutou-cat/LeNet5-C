@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+#include <stdarg.h>
 #include "io.h"
 #include <stdlib.h>
 #include <string.h>
@@ -454,16 +456,46 @@ void importcnn(CNN* cnn, const char* filename)
 	fclose(fp);
 }
 
-void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum)
+// 单调时钟测量真实耗时，不受系统时间校准影响；不是CPU占用时间。
+static double training_seconds(void)
 {
+	struct timespec now;
+	if(clock_gettime(CLOCK_MONOTONIC,&now)!=0) { perror("clock_gettime");exit(EXIT_FAILURE); }
+	return (double)now.tv_sec+(double)now.tv_nsec/1e9;
+}
+
+static void training_log(FILE* log,const char* format,...)
+{
+	va_list args;
+	va_start(args,format);
+	vprintf(format,args);
+	va_end(args);
+	fflush(stdout);
+	if(log) {
+		va_start(args,format);
+		int result=vfprintf(log,format,args);
+		va_end(args);
+		if(result<0 || fflush(log)!=0) { perror("training log");exit(EXIT_FAILURE); }
+	}
+}
+
+void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum,FILE* log)
+{
+	double training_start=training_seconds();
+	time_t now=time(NULL);
+	char started[80]="unknown";
+	struct tm* local=localtime(&now);
+	if(local) strftime(started,sizeof(started),"%Y-%m-%d %H:%M:%S %z",local);
+	training_log(log,"\nTraining started: %s\n",started);
 	// 学习训练误差曲线
 	cnn->L=(float*)malloc(trainNum*sizeof(float));
-	printf("Training: %d samples, %d epochs, learning rate %.4g\n",
+	training_log(log,"Training: %d samples, %d epochs, learning rate %.4g\n",
 		trainNum, opts.numepochs, opts.alpha);
 	fflush(stdout);
 	int e;
 	for(e=0;e<opts.numepochs;e++){
-		printf("Epoch %d/%d: starting\n", e+1, opts.numepochs);
+		double epoch_start=training_seconds();
+		training_log(log,"Epoch %d/%d: starting\n", e+1, opts.numepochs);
 		fflush(stdout);
 		int n=0;
 		for(n=0;n<trainNum;n++){
@@ -482,13 +514,19 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 				cnn->L[n]=cnn->L[n-1]*0.99f+0.01f*(float)l;
 			// 首个样本、每 100 个样本及本轮结束时输出平滑损失。
 			if(n==0 || (n+1)%100==0 || n+1==trainNum){
-				printf("Epoch %d/%d | %d/%d (%6.2f%%) | smoothed loss: %.6f\n",
+				training_log(log,"Epoch %d/%d | %d/%d (%6.2f%%) | smoothed loss: %.6f | elapsed: %.1f s\n",
 					e+1, opts.numepochs, n+1, trainNum,
-					100.0*(n+1)/trainNum, cnn->L[n]);
+					100.0*(n+1)/trainNum, cnn->L[n],training_seconds()-training_start);
 				fflush(stdout);
 			}
 		}
+		training_log(log,"Epoch %d/%d finished: %.3f s\n",e+1,opts.numepochs,
+			training_seconds()-epoch_start);
 	}
+	double elapsed=training_seconds()-training_start;
+	long long seconds=(long long)elapsed;
+	training_log(log,"Training time: %.3f s (%02lld:%02lld:%02lld)\n",
+		elapsed,seconds/3600,seconds/60%60,seconds%60);
 }
 
 // 这里InputData是图像数据，inputData[r][c],r行c列，这里根各权重模板是一致的

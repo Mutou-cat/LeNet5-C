@@ -77,10 +77,23 @@ int main(int argc, char **argv)
     cnnsetup(&cnn, input_size, 10);
     if (strcmp(argv[1], "train") == 0) {
         CNNOpts options = {10, 0.001f};
-        cnntrain(&cnn, images, labels, options, images->ImgNum);
+        size_t log_size = strlen(argv[4]) + sizeof(".train.log");
+        char *log_path = malloc(log_size);
+        if (!log_path) { perror("training log path"); return EXIT_FAILURE; }
+        snprintf(log_path, log_size, "%s.train.log", argv[4]);
+        FILE *log = fopen(log_path, "a");
+        if (!log) { perror(log_path); free(log_path); return EXIT_FAILURE; }
+        printf("Training log: %s\n", log_path);
+        cnntrain(&cnn, images, labels, options, images->ImgNum, log);
         savecnn(&cnn, argv[4]);
         printf("Training finished: %d samples; model saved to %s\n",
                images->ImgNum, argv[4]);
+        int log_result = fprintf(log, "Model saved to %s\n", argv[4]);
+        int close_result = fclose(log);
+        if (log_result < 0 || close_result != 0) {
+            perror(log_path); free(log_path); return EXIT_FAILURE;
+        }
+        free(log_path);
     } else {
         importcnn(&cnn, argv[4]);
         float error = cnntest(&cnn, images, labels, images->ImgNum);
