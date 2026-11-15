@@ -161,7 +161,16 @@ int main(int argc,char** argv)
     network_loss(&cnn,x,target);
     float saved_output[10];
     memcpy(saved_output,cnn.O5->y,sizeof(saved_output));
+    float saved_f6_weights[84][120],saved_f6_bias[84];
+    for(int j=0;j<84;j++) {
+        memcpy(saved_f6_weights[j],cnn.F6->wData[j],sizeof(saved_f6_weights[j]));
+        saved_f6_bias[j]=cnn.F6->basicData[j];
+    }
     savecnn(&cnn,argv[1]);
+    for(int j=0;j<84;j++) {
+        for(int k=0;k<120;k++) cnn.F6->wData[j][k]=99;
+        cnn.F6->basicData[j]=-99;
+    }
     PoolLayer* pools[]={cnn.S2,cnn.S4};
     for(int layer=0;layer<2;layer++)
         for(int i=0;i<pools[layer]->outChannels;i++) {
@@ -174,6 +183,10 @@ int main(int argc,char** argv)
     for(int j=0;j<120;j++) cnn.C5->basicData[j]=99;
     cnn.O5->basicData[0]=99;
     importcnn(&cnn,argv[1]);
+    for(int j=0;j<84;j++) {
+        for(int k=0;k<120;k++) near(cnn.F6->wData[j][k],saved_f6_weights[j][k],0);
+        near(cnn.F6->basicData[j],saved_f6_bias[j],0);
+    }
     for(int i=0;i<cnn.C3->inChannels;i++) for(int j=0;j<cnn.C3->outChannels;j++)
         if(!covConnected(cnn.C3,i,j)) for(int r=0;r<5;r++) for(int c=0;c<5;c++)
             near(cnn.C3->mapData[i][j][r][c],0,0);

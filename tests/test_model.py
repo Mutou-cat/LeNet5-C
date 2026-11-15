@@ -20,23 +20,27 @@ with tempfile.TemporaryDirectory() as folder:
     subprocess.run([str(ROOT / 'build/test_pool'), str(checkpoint)], check=True)
     raw = bytes(i % 256 for i in range(784))
     good = checkpoint.read_bytes()
-    assert good[:8] == b'DLCC5V01'
+    assert good[:8] == b'DLCF6V01'
     assert predict(checkpoint, raw).returncode == 0
     wrong_shape = bytearray(good)
     wrong_shape[8:12] = struct.pack('=i', 28)
     wrong_connections = bytearray(good)
-    wrong_connections[8+15*struct.calcsize('=i')+6] ^= 1
+    wrong_connections[8+17*struct.calcsize('=i')+6] ^= 1
     wrong_c5_connections = bytearray(good)
-    wrong_c5_connections[8+15*struct.calcsize('=i')+6+96] = 0
+    wrong_c5_connections[8+17*struct.calcsize('=i')+6+96] = 0
     wrong_c5_shape = bytearray(good)
     wrong_c5_shape[8+13*struct.calcsize('=i'):8+14*struct.calcsize('=i')] = struct.pack('=i', 119)
-    assert len(good) == 8+15*struct.calcsize('=i')+6+96+16*120+51046*4
+    wrong_f6_shape = bytearray(good)
+    wrong_f6_shape[8+16*struct.calcsize('=i'):8+17*struct.calcsize('=i')] = struct.pack('=i', 83)
+    assert len(good) == 8+17*struct.calcsize('=i')+6+96+16*120+60850*4
     for label, data, message in [
         ('previous', b'DLCPOOL1'+good[8:], b'Incompatible model'),
         ('sparse', b'DLCSPC01'+good[8:], b'Incompatible model'),
+        ('c5', b'DLCC5V01'+good[8:], b'Incompatible model'),
         ('connections', wrong_connections, b'connection table'),
         ('c5_connections', wrong_c5_connections, b'connection table'),
         ('c5_shape', wrong_c5_shape, b'architecture'),
+        ('f6_shape', wrong_f6_shape, b'architecture'),
         ('old', bytes(15592), b'Incompatible model'),
         ('shape', wrong_shape, b'architecture'),
         ('truncated', good[:-4], b'truncated'),
