@@ -74,13 +74,13 @@ int main(int argc, char **argv)
     ImgArr images = read_Img(argv[2]);
     LabelArr labels = read_Lable(argv[3]);
     if (images->ImgNum <= 0 || images->ImgNum != labels->LabelNum ||
-        images->ImgPtr[0].c != 28 || images->ImgPtr[0].r != 28) {
-        fprintf(stderr, "Expected matching, nonempty MNIST data with 28x28 images\n");
+        images->ImgPtr[0].c != 32 || images->ImgPtr[0].r != 32) {
+        fprintf(stderr, "Expected matching, nonempty MNIST data with 32x32   images\n");
         return EXIT_FAILURE;
     }
 
     CNN cnn = {0};
-    nSize input_size = {28, 28};
+    nSize input_size = {32, 32};
     cnnsetup(&cnn, input_size, 10);
     if (strcmp(argv[1], "train") == 0) {
         CNNOpts options = {10, 1.0f};
