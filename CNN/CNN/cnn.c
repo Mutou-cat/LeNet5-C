@@ -382,10 +382,12 @@ void cnnff(CNN* cnn,float** inputData)
 }
 
 // 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
-float activation_Sigma(float input,float bas) // sigma激活函数
+float activation_Sigma(float input,float bas) // LeNet-5缩放tanh激活函数
 {
-	float temp=input+bas;
-	return (float)1.0/((float)(1.0+exp(-temp)));
+	const float A=1.7159f;
+	const float S=2.0f/3.0f;
+	float z=input+bas;
+	return A*tanhf(S*z);
 }
 
 void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize) // 求平均值
@@ -428,8 +430,11 @@ void nnff(float* output,float* input,float** wdata,float* bas,nSize nnSize)
 		output[i]=vecMulti(input,wdata[i],w)+bas[i];
 }
 
-float sigma_derivation(float y){ // Logic激活函数的自变量微分
-	return y*(1-y); // 这里y是指经过激活函数的输出值，而不是自变量
+float sigma_derivation(float y){ // 缩放tanh对激活前输入z的导数
+	const float A=1.7159f;
+	const float S=2.0f/3.0f;
+	float t=y/A; // 参数y是激活后的输出：y=A*tanh(S*z)
+	return A*S*(1.0f-t*t);
 }
 
 void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
