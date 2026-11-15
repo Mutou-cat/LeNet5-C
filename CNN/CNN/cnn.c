@@ -334,15 +334,8 @@ void cnnff(CNN* cnn,float** inputData)
 				cnn->C1->y[i][r][c]=activation_Sigma(cnn->C1->v[i][r][c],cnn->C1->basicData[i]);
 	}
 
-	// 第二层的输出传播S2，采样层
-	outSize.c=cnn->C3->inputWidth;
-	outSize.r=cnn->C3->inputHeight;
-	inSize.c=cnn->S2->inputWidth;
-	inSize.r=cnn->S2->inputHeight;
-	for(i=0;i<(cnn->S2->outChannels);i++){
-		if(cnn->S2->poolType==AvePool)
-			avgPooling(cnn->S2->y[i],outSize,cnn->C1->y[i],inSize,cnn->S2->mapSize);
-	}
+	// S2：窗口求和、乘每通道系数、加偏置、缩放tanh。
+	poolff(cnn->S2,cnn->C1->y);
 
 	// 第三层输出传播,这里是全连接
 	outSize.c=cnn->S4->inputWidth;
@@ -364,15 +357,10 @@ void cnnff(CNN* cnn,float** inputData)
 				cnn->C3->y[i][r][c]=activation_Sigma(cnn->C3->v[i][r][c],cnn->C3->basicData[i]);
 	}
 
-	// 第四层的输出传播
-	inSize.c=cnn->S4->inputWidth;
-	inSize.r=cnn->S4->inputHeight;
-	outSize.c=inSize.c/cnn->S4->mapSize;
-	outSize.r=inSize.r/cnn->S4->mapSize;
-	for(i=0;i<(cnn->S4->outChannels);i++){
-		if(cnn->S4->poolType==AvePool)
-			avgPooling(cnn->S4->y[i],outSize,cnn->C3->y[i],inSize,cnn->S4->mapSize);
-	}
+	// S4采用与S2相同的可训练下采样。
+	poolff(cnn->S4,cnn->C3->y);
+	outSize.c=cnn->S4->inputWidth/cnn->S4->mapSize;
+	outSize.r=cnn->S4->inputHeight/cnn->S4->mapSize;
 
 	// 输出层O5的处理
 	// 首先需要将前面的多维输出展开成一维向量
@@ -396,6 +384,23 @@ float activation_Sigma(float input,float bas) // LeNet-5缩放tanh激活函数
 	const float S=2.0f/3.0f;
 	float z=input+bas;
 	return A*tanhf(S*z);
+}
+
+// LeNet-5下采样：每通道共享a、b；缓存窗口和供反向传播使用。
+void poolff(PoolLayer* pool,float*** input)
+{
+	int width=pool->inputWidth/pool->mapSize;
+	int height=pool->inputHeight/pool->mapSize;
+	for(int i=0;i<pool->outChannels;i++)
+		for(int r=0;r<height;r++)
+			for(int c=0;c<width;c++) {
+				float sum=0.0f;
+				for(int dr=0;dr<pool->mapSize;dr++)
+					for(int dc=0;dc<pool->mapSize;dc++)
+						sum+=input[i][r*pool->mapSize+dr][c*pool->mapSize+dc];
+				pool->sumData[i][r][c]=sum;
+				pool->y[i][r][c]=activation_Sigma(pool->scaleData[i]*sum,pool->basicData[i]);
+			}
 }
 
 void avgPooling(float** output,nSize outputSize,float** input,nSize inputSize,int mapSize) // 求平均值

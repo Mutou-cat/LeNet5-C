@@ -121,6 +121,8 @@ OutLayer* initOutLayer(int inputNum,int outputNum);
 // 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
 float activation_Sigma(float input,float bas); // LeNet-5缩放tanh：1.7159*tanh((2/3)*(input+bas))
 
+void poolff(PoolLayer* pool,float*** input); // 可训练下采样前向计算
+
 void cnnff(CNN* cnn,float** inputData); // 网络的前向传播
 void cnnbp(CNN* cnn,float* outputData); // 网络的后向传播
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData);
