@@ -4,6 +4,15 @@
 
 目前已经实现 LeNet-5 的主要网络结构，包括部分连接卷积、可训练下采样、缩放 tanh 和固定模板 RBF 输出。训练采用普通 SGD，部分配置与原论文不同，因此本项目是学习实现，不宣称完整复现论文实验。
 
+## 项目来源
+
+**本项目的主要代码框架基于 [tostq/DeepLearningC](https://github.com/tostq/DeepLearningC) 改造，并非从零独立编写。** 原项目提供了CNN的数据结构、矩阵与卷积运算，以及前向传播、反向传播和训练的基础框架。
+
+本仓库在原项目基础上进行学习和修改，主要包括：整理为C11/GCC构建，逐步改造LeNet-5各层及RBF输出，调整初始化和模型保存方式，增加训练进度、耗时日志及手写识别窗口。感谢原作者提供的代码和教程。
+
+- 原始GitHub仓库：[tostq/DeepLearningC](https://github.com/tostq/DeepLearningC)
+- 原作者教程：[用C语言实现卷积神经网络相关教程](http://blog.csdn.net/tostq/article/details/51786265)
+
 ## 快速开始
 
 在项目根目录执行。需要GCC和Make，并已将四个MNIST IDX文件解压到`CNN/Minst/`；手写窗口还需要Python 3和Tkinter。
