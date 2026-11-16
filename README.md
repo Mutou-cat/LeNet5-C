@@ -4,6 +4,34 @@
 
 目前已经实现 LeNet-5 的主要网络结构，包括部分连接卷积、可训练下采样、缩放 tanh 和固定模板 RBF 输出。训练采用普通 SGD，部分配置与原论文不同，因此本项目是学习实现，不宣称完整复现论文实验。
 
+## 快速开始
+
+在项目根目录执行。需要GCC和Make，并已将四个MNIST IDX文件解压到`CNN/Minst/`；手写窗口还需要Python 3和Tkinter。
+
+```sh
+# 1. 编译
+make
+
+# 2. 从头训练：默认10轮，学习率0.001，固定随机种子42
+./build/cnn train \
+    CNN/Minst/train-images-idx3-ubyte \
+    CNN/Minst/train-labels-idx1-ubyte \
+    CNN/CNN/lenet5_quickstart.cnn --seed 42
+
+# 3. 用测试集评估刚训练好的模型
+./build/cnn test \
+    CNN/Minst/t10k-images-idx3-ubyte \
+    CNN/Minst/t10k-labels-idx1-ubyte \
+    CNN/CNN/lenet5_quickstart.cnn
+
+# 4. 启动手写窗口，在窗口中选择上面的模型文件
+make gui
+```
+
+模型在训练结束后保存；同名模型会被覆盖。进度和耗时追加到`CNN/CNN/lenet5_quickstart.cnn.train.log`。已有兼容模型时，可跳过训练，直接测试或在窗口中加载。
+
+环境安装、数据文件说明及更多用法见后面的“编译与运行”。
+
 ## 1. LeNet-5 是什么
 
 LeNet-5 是 LeCun 等人在 1998 年论文中介绍的卷积神经网络，可用于手写字符识别。它通过卷积提取局部特征，通过下采样缩小特征图，再将这些特征组合成用于分类的表示。
