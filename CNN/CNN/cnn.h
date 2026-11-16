@@ -91,6 +91,7 @@ typedef struct train_opts{
 	float alpha; // 学习速率
 }CNNOpts;
 
+// 调用方在首次初始化前设置一次srand(seed)，各层不会重置随机序列。
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize);
 /*
 	CNN网络的训练函数

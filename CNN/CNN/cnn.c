@@ -41,6 +41,17 @@ void CovLayerConnect(CovLayer* layer,const bool* connections)
 		}
 }
 
+// LeCun等(1998)附录A：U[-2.4/F, 2.4/F]，F为神经元的输入连接数。
+// srand由程序入口调用一次，各层连续使用同一个随机序列。
+static float initial_weight(int fan_in)
+{
+	float uniform=(float)((double)rand()/(double)RAND_MAX*2.0-1.0);
+	return uniform*(2.4f/(float)fan_in);
+}
+
+static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSize,
+	int inChannels,int outChannels,const bool* connections);
+
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
 	if(outputSize!=RBF_CLASSES) {
@@ -58,12 +69,11 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->S2=initPoolLayer(inSize.c,inSize.r,2,6,6);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
-	cnn->C3=initCovLayer(inSize.c,inSize.r,5,6,16);
 	bool connections[6*16];
 	for(int i=0;i<6;i++)
 		for(int j=0;j<16;j++)
 			connections[i*16+j]=(c3_connections[j] & (1u<<i)) != 0;
-	CovLayerConnect(cnn->C3,connections);
+	cnn->C3=initCovLayerConnected(inSize.c,inSize.r,5,6,16,connections);
 	inSize.c=inSize.c-mapSize+1;
 	inSize.r=inSize.r-mapSize+1;
 	cnn->S4=initPoolLayer(inSize.c,inSize.r,2,16,16);
@@ -76,7 +86,8 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	memset(&cnn->O7,0,sizeof(cnn->O7));
 }
 
-CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
+static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSize,
+	int inChannels,int outChannels,const bool* connections)
 {
 	CovLayer* covL=(CovLayer*)malloc(sizeof(CovLayer));
 
@@ -87,23 +98,28 @@ CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels
 	covL->inChannels=inChannels;
 	covL->outChannels=outChannels;
 
-	covL->isFullConnect=true; // 默认所有输入/输出通道连接，C3随后设置部分连接
+	covL->isFullConnect=true;
 	covL->connectModel=(bool*)malloc(inChannels*outChannels*sizeof(bool));
-	for(int k=0;k<inChannels*outChannels;k++) covL->connectModel[k]=true;
+	for(int k=0;k<inChannels*outChannels;k++) {
+		covL->connectModel[k]=connections ? connections[k]:true;
+		if(!covL->connectModel[k]) covL->isFullConnect=false;
+	}
 
 	// 权重空间的初始化，先行再列调用，[r][c]
 	int i,j,c,r;
-	srand((unsigned)time(NULL));
 	covL->mapData=(float****)malloc(inChannels*sizeof(float***));
 	for(i=0;i<inChannels;i++){
 		covL->mapData[i]=(float***)malloc(outChannels*sizeof(float**));
 		for(j=0;j<outChannels;j++){
+			int connected_inputs=0;
+			for(int k=0;k<inChannels;k++)
+				connected_inputs+=covConnected(covL,k,j);
+			int fan_in=mapSize*mapSize*connected_inputs;
 			covL->mapData[i][j]=(float**)malloc(mapSize*sizeof(float*));
 			for(r=0;r<mapSize;r++){
 				covL->mapData[i][j][r]=(float*)malloc(mapSize*sizeof(float));
 				for(c=0;c<mapSize;c++){
-					float randnum=(((float)rand()/(float)RAND_MAX)-0.5)*2;
-					covL->mapData[i][j][r][c]=randnum*sqrt((float)6.0/(float)(mapSize*mapSize*(inChannels+outChannels)));
+					covL->mapData[i][j][r][c]=covConnected(covL,i,j) ? initial_weight(fan_in):0.0f;
 				}
 			}
 		}
@@ -143,6 +159,12 @@ CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels
 	return covL;
 }
 
+// 全连接卷积层使用同一初始化路径；部分连接必须先给连接表再初始化。
+CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
+{
+	return initCovLayerConnected(inputWidth,inputHeight,mapSize,inChannels,outChannels,NULL);
+}
+
 PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
 {
 	PoolLayer* poolL=(PoolLayer*)malloc(sizeof(PoolLayer));
@@ -158,7 +180,7 @@ PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChanne
 	poolL->dscaleData=(float*)calloc(outChannels,sizeof(float));
 	poolL->dbasicData=(float*)calloc(outChannels,sizeof(float));
 	for(int channel=0;channel<outChannels;channel++)
-		poolL->scaleData[channel]=1.0f/(mapSize*mapSize);
+		poolL->scaleData[channel]=initial_weight(mapSize*mapSize);
 
 	int outW=inputWidth/mapSize;
 	int outH=inputHeight/mapSize;
@@ -198,12 +220,10 @@ OutLayer* initOutLayer(int inputNum,int outputNum)
 	// 权重的初始化
 	outL->wData=(float**)malloc(outputNum*sizeof(float*)); // 输入行，输出列
 	int i,j;
-	srand((unsigned)time(NULL));
 	for(i=0;i<outputNum;i++){
 		outL->wData[i]=(float*)malloc(inputNum*sizeof(float));
 		for(j=0;j<inputNum;j++){
-			float randnum=(((float)rand()/(float)RAND_MAX)-0.5)*2; // 产生一个-1到1的随机数
-			outL->wData[i][j]=randnum*sqrt((float)6.0/(float)(inputNum+outputNum));
+			outL->wData[i][j]=initial_weight(inputNum);
 		}
 	}
 
