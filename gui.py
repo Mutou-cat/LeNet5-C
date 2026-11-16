@@ -1,4 +1,4 @@
-"""Handwriting UI; inference is performed by the GCC-built C executable."""
+"""28×28手写画板；Python负责交互，预处理和网络推理由GCC编译的C程序完成。"""
 import json
 from pathlib import Path
 import queue
@@ -9,12 +9,12 @@ from tkinter import filedialog, messagebox, ttk
 
 ROOT = Path(__file__).resolve().parent
 GRID = 28
-CELL = 10
+CELL = 10  # 屏幕上每格显示10×10像素，模型中仍只对应一个像素
 SIZE = GRID * CELL
 
 
 def prepare_pixels(pixels):
-    """Pass the 28x28 grid unchanged to the C model."""
+    """保留原始784字节，不裁剪、缩放或居中；空白画布返回None。"""
     return bytes(pixels) if any(pixels) else None
 
 
@@ -24,6 +24,7 @@ class DigitApp:
         self.pixels = bytearray(GRID * GRID)
         self.last = None
         self.busy = False
+        # 工作线程只向队列写结果，所有Tk控件更新留在主线程。
         self.results = queue.Queue()
         window.title('手写数字识别 · C CNN')
         window.resizable(False, False)
@@ -61,6 +62,7 @@ class DigitApp:
         ttk.Label(frame, textvariable=self.status).grid(row=4, column=0, columnspan=2, sticky='w', pady=8)
         model_frame = ttk.Frame(frame)
         model_frame.grid(row=5, column=0, columnspan=2, sticky='ew', pady=8)
+        # 历史默认路径不保证存在或兼容；用户可在窗口中选择当前RBF模型。
         default = ROOT / 'CNN/CNN/my_model.cnn'
         if not default.exists():
             default = ROOT / 'CNN/CNN/minst.cnn'
@@ -116,6 +118,7 @@ class DigitApp:
             return
         x, y = event.x // CELL, event.y // CELL
         start_x, start_y = self.last or (x, y)
+        # 在两次鼠标事件之间补齐格子，避免快速移动造成笔画断裂。
         distance = max(1, abs(x - start_x), abs(y - start_y))
         for step in range(distance + 1):
             px = round(start_x + (x - start_x) * step / distance)
@@ -143,6 +146,7 @@ class DigitApp:
         rows = ['{' + ' '.join(f'#{v:02x}{v:02x}{v:02x}' for v in pixels[y*28:(y+1)*28]) + '}'
                 for y in range(28)]
         photo.put(' '.join(rows))
+        # 仅放大显示预览，不改变传给C程序的数据；保存引用防止图片被回收。
         self.preview_photo = photo.zoom(4)
         self.preview.configure(image=self.preview_photo)
 
@@ -180,9 +184,11 @@ class DigitApp:
         self.status.set('正在调用 C 模型识别…')
         self.answer.set('—')
         self.show_scores([0] * 10)
+        # 子进程等待放到后台线程，避免阻塞Tk事件循环。
         threading.Thread(target=self.run_model, args=(pixels, model), daemon=True).start()
 
     def run_model(self, pixels, model):
+        """stdin传灰度字节，stdout读JSON；识别超时或失败时把错误交回主线程。"""
         try:
             result = subprocess.run([str(ROOT / 'build/cnn'), 'predict', str(model)],
                                     input=pixels, capture_output=True, timeout=15, check=True)
@@ -192,6 +198,7 @@ class DigitApp:
             self.results.put((None, detail))
 
     def poll_result(self):
+        """由Tk主线程定时读取队列并更新界面，不在工作线程中操作控件。"""
         try:
             result, error = self.results.get_nowait()
         except queue.Empty:

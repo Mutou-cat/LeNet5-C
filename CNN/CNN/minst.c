@@ -6,7 +6,7 @@
 #include <assert.h>
 #include "minst.h"
 
-//英特尔处理器和其他低端机用户必须翻转头字节。
+// 按内存中的大端字节顺序还原IDX头字段；当前读取方式要求int为32位。
 int ReverseInt(int i)
 {
 	unsigned char *split = (unsigned char*)&i;
@@ -26,16 +26,16 @@ ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×
 	int number_of_images = 0;
 	int n_rows = 0;
 	int n_cols = 0;
-	//从文件中读取sizeof(magic_number) 个字符到 &magic_number
+	// IDX头字段为4字节大端整数：先读取原始字节，再还原数值。
 	read_exact((char*)&magic_number,sizeof(magic_number),1,fp);
 	magic_number = ReverseInt(magic_number);
-	//获取训练或测试image的个数number_of_images
+	// 图片样本数，决定随后读取多少组784字节。
 	read_exact((char*)&number_of_images,sizeof(number_of_images),1,fp);
 	number_of_images = ReverseInt(number_of_images);
-	//获取训练或测试图像的高度Heigh
+	// 文件中每张图片的行数。
 	read_exact((char*)&n_rows,sizeof(n_rows),1,fp);
 	n_rows = ReverseInt(n_rows);
-	//获取训练或测试图像的宽度Width
+	// 文件中每张图片的列数。
 	read_exact((char*)&n_cols,sizeof(n_cols),1,fp);
 	n_cols = ReverseInt(n_cols);
 	if(magic_number != 2051 || number_of_images <= 0 ||
@@ -51,7 +51,7 @@ ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×
 	const int image_cols = n_cols + 2 * padding;
 	int i,r,c;
 
-	// 图像数组的初始化
+	// 分配容器和图片结构体数组；后续再为每张图分配行指针及像素。
 	ImgArr imgarr=(ImgArr)malloc(sizeof(MinstImgArr));
 	if(imgarr == NULL) { perror("malloc"); exit(EXIT_FAILURE); }
 	imgarr->ImgNum=number_of_images;
@@ -89,7 +89,7 @@ ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×
 	return imgarr;
 }
 
-LabelArr read_Lable(const char* filename)// 读入图像
+LabelArr read_Lable(const char* filename)// 读取标签：8字节头后，每个样本占1字节
 {
 	FILE  *fp=NULL;
 	fp=fopen(filename,"rb");
@@ -97,22 +97,22 @@ LabelArr read_Lable(const char* filename)// 读入图像
 		perror(filename);
 		exit(EXIT_FAILURE);
 	}
-	assert(fp);
+	assert(fp); // 上面的失败分支已退出；此处是冗余的调试断言。
 
 	int magic_number = 0;
 	int number_of_labels = 0;
 	int label_long = 10;
 
-	//从文件中读取sizeof(magic_number) 个字符到 &magic_number
+	// IDX头字段为4字节大端整数：先读取原始字节，再还原数值。
 	read_exact((char*)&magic_number,sizeof(magic_number),1,fp);
-	magic_number = ReverseInt(magic_number);
-	//获取训练或测试image的个数number_of_images
+	magic_number = ReverseInt(magic_number); // 当前仅读取，未校验标签魔数2049。
+	// 标签样本数；调用方核对它与图片数量是否一致。
 	read_exact((char*)&number_of_labels,sizeof(number_of_labels),1,fp);
 	number_of_labels = ReverseInt(number_of_labels);
 
 	int i;
 
-	// 图像标记数组的初始化
+	// 分配标签容器；每个标签再分配一个10维one-hot向量。
 	LabelArr labarr=(LabelArr)malloc(sizeof(MinstLabelArr));
 	labarr->LabelNum=number_of_labels;
 	labarr->LabelPtr=(MinstLabel*)malloc(number_of_labels*sizeof(MinstLabel));
@@ -120,6 +120,7 @@ LabelArr read_Lable(const char* filename)// 读入图像
 	for(i = 0; i < number_of_labels; ++i)
 	{
 		labarr->LabelPtr[i].l=10;
+		// 先置零，再把文件中数字temp对应的位置设为1。
 		labarr->LabelPtr[i].LabelData=(float*)calloc(label_long,sizeof(float));
 		unsigned char temp = 0;
 		read_exact((char*) &temp, sizeof(temp),1,fp);
@@ -131,7 +132,7 @@ LabelArr read_Lable(const char* filename)// 读入图像
 	return labarr;
 }
 
-char* intTochar(int i)// 将数字转换成字符串
+char* intTochar(int i)// 将非负整数转为十进制字符串，返回堆内存
 {
 	int itemp=i;
 	int w=0;
@@ -152,7 +153,7 @@ char* intTochar(int i)// 将数字转换成字符串
 	return ptr;
 }
 
-char * combine_strings(const char *a, const char *b) // 将两个字符串相连
+char * combine_strings(const char *a, const char *b) // 拼接字符串，返回新分配的缓冲区；调用方负责释放
 {
 	char *ptr;
 	int lena=strlen(a),lenb=strlen(b);
@@ -166,7 +167,8 @@ char * combine_strings(const char *a, const char *b) // 将两个字符串相连
 	return(ptr);
 }
 
-void save_Img(ImgArr imgarr,const char* filedir) // 将图像数据保存成文件
+// .gray里保存的是内存中的float像素，不含文件头，不能作为predict的784字节输入。
+void save_Img(ImgArr imgarr,const char* filedir) // 历史导出工具：filedir为路径前缀，需自带目录分隔符，目录须已存在
 {
 	int img_number=imgarr->ImgNum;
 

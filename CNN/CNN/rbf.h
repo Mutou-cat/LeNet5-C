@@ -12,9 +12,13 @@ typedef struct rbf_layer {
 
 /* 固定7×12数字模板，按行展平；笔画+1，背景-1。 */
 float rbfCenter(int digit,int coordinate);
+// 覆盖y距离数组；input是F6的激活后输出，不是原始图片。
 void rbfff(RbfLayer* layer,const float input[RBF_INPUTS]);
+// 读取最近一次前向结果，target是0..9的类别编号。
 double rbfloss(const RbfLayer* layer,int target);
+// 覆盖d和dx；dx表示dL/d(F6.y)，要求input与前向时一致。
 void rbfbp(RbfLayer* layer,const float input[RBF_INPUTS],int target,float dx[RBF_INPUTS]);
+// 返回距离最小的类别；同距离时返回较小编号。
 int rbfPredict(const RbfLayer* layer);
 
 #endif

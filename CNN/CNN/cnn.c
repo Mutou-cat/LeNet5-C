@@ -22,7 +22,7 @@ bool covConnected(const CovLayer* layer,int input,int output)
 	return layer->connectModel[input*layer->outChannels+output];
 }
 
-// 拷贝连接表；保留四维数组寻址，断开的权重槽清零且不参与运算。
+// 拷贝连接表并清零断开槽；不重采样权重。加载模型时也用它恢复无效槽为0。
 void CovLayerConnect(CovLayer* layer,const bool* connections)
 {
 	layer->isFullConnect=true;
@@ -52,6 +52,7 @@ static float initial_weight(int fan_in)
 static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSize,
 	int inChannels,int outChannels,const bool* connections);
 
+// 当前网络面向32×32单通道输入、10类输出；inputSize按{宽,高}传入。
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 {
 	if(outputSize!=RBF_CLASSES) {
@@ -105,12 +106,13 @@ static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSiz
 		if(!covL->connectModel[k]) covL->isFullConnect=false;
 	}
 
-	// 权重空间的初始化，先行再列调用，[r][c]
+	// 按[输入通道][输出通道][核行][核列]分配；各行不保证连续存储。
 	int i,j,c,r;
 	covL->mapData=(float****)malloc(inChannels*sizeof(float***));
 	for(i=0;i<inChannels;i++){
 		covL->mapData[i]=(float***)malloc(outChannels*sizeof(float**));
 		for(j=0;j<outChannels;j++){
+			// fan-in按当前输出实际连接的通道计数，C3各输出可能不同。
 			int connected_inputs=0;
 			for(int k=0;k<inChannels;k++)
 				connected_inputs+=covConnected(covL,k,j);
@@ -124,7 +126,7 @@ static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSiz
 			}
 		}
 	}
-	// 权重梯度变化
+	// 与权重同形的缓存：当前C5写入dL/dW，C1/C3直接使用临时梯度矩阵。
 	covL->dmapData=(float****)malloc(inChannels*sizeof(float***));
 	for(i=0;i<inChannels;i++){
 		covL->dmapData[i]=(float***)malloc(outChannels*sizeof(float**));
@@ -136,8 +138,10 @@ static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSiz
 		}
 	}
 
+	// 每输出通道共享一个偏置；零初始化是本实现的约定。
 	covL->basicData=(float*)calloc(outChannels,sizeof(float));
 
+	// valid卷积、步长1；v/y/d是输出特征图大小，不是卷积核大小。
 	int outW=inputWidth-mapSize+1;
 	int outH=inputHeight-mapSize+1;
 
@@ -159,12 +163,13 @@ static CovLayer* initCovLayerConnected(int inputWidth,int inputHeight,int mapSiz
 	return covL;
 }
 
-// 全连接卷积层使用同一初始化路径；部分连接必须先给连接表再初始化。
+// 输入输出通道全部相连的卷积层走同一路径；部分连接须在初始化前提供掩码。
 CovLayer* initCovLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
 {
 	return initCovLayerConnected(inputWidth,inputHeight,mapSize,inChannels,outChannels,NULL);
 }
 
+// 输入输出通道一一对应；本网络窗口为2×2、步长2，每通道只有a和b两个参数。
 PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChannels,int outChannels)
 {
 	PoolLayer* poolL=(PoolLayer*)malloc(sizeof(PoolLayer));
@@ -179,6 +184,7 @@ PoolLayer* initPoolLayer(int inputWidth,int inputHeight,int mapSize,int inChanne
 	poolL->basicData=(float*)calloc(outChannels,sizeof(float));
 	poolL->dscaleData=(float*)calloc(outChannels,sizeof(float));
 	poolL->dbasicData=(float*)calloc(outChannels,sizeof(float));
+	// a在窗口内各连接之间共享，按窗口面积作为fan-in随机初始化；不是固定平均系数。
 	for(int channel=0;channel<outChannels;channel++)
 		poolL->scaleData[channel]=initial_weight(mapSize*mapSize);
 
@@ -218,7 +224,7 @@ OutLayer* initOutLayer(int inputNum,int outputNum)
 	outL->y=(float*)calloc(outputNum,sizeof(float));
 
 	// 权重的初始化
-	outL->wData=(float**)malloc(outputNum*sizeof(float*)); // 输入行，输出列
+	outL->wData=(float**)malloc(outputNum*sizeof(float*)); // 行对应输出神经元，列对应输入分量
 	int i,j;
 	for(i=0;i<outputNum;i++){
 		outL->wData[i]=(float*)malloc(inputNum*sizeof(float));
@@ -232,7 +238,7 @@ OutLayer* initOutLayer(int inputNum,int outputNum)
 	return outL;
 }
 
-int vecmaxIndex(float* vec, int veclength)// 返回向量最大数的序号
+int vecmaxIndex(float* vec, int veclength)// 返回首个最大值下标，要求vec非空且veclength>0；用于取one-hot目标类别
 {
 	int i;
 	float maxnum=vec[0];
@@ -246,7 +252,7 @@ int vecmaxIndex(float* vec, int veclength)// 返回向量最大数的序号
 	return maxIndex;
 }
 
-// 测试cnn函数
+// 对前testNum个样本评估，RBF预测取最小距离；返回错误率而非准确率。
 float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 {
 	int n=0;
@@ -260,9 +266,10 @@ float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum)
 	return (float)incorrectnum/(float)testNum;
 }
 
-// 文件版本固定当前的缩放tanh/可训练下采样语义；结构变化时拒绝误加载。
+// DLCRBF01模型格式；整数和浮点使用本机表示，不是跨平台交换协议。
 static const char model_magic[8]={'D','L','C','R','B','F','0','1'};
 
+// 17个字段的顺序属于文件协议；修改字段含义或布局时须同步升级版本。
 static void model_shape(const CNN* cnn,int shape[17])
 {
 	shape[0]=cnn->C1->inputWidth;
@@ -307,7 +314,6 @@ static void check_connections(const CovLayer* layer,FILE* fp)
 		}
 }
 
-// 保存cnn
 // 固定模板也写入并核对，避免不同字模或损失设置静默加载同一权重。
 static void write_rbf_config(FILE* fp)
 {
@@ -334,6 +340,8 @@ static void check_rbf_config(FILE* fp)
 	}
 }
 
+/* 文件顺序：版本、结构、C1/C3/C5连接表、RBF配置、C1/C3/C5/F6参数、S2/S4参数。
+ * 仅保存有效卷积连接；不保存v/y/d、损失曲线或随机数状态，不能据此恢复训练进度。 */
 void savecnn(CNN* cnn, const char* filename)
 {
 	FILE  *fp=NULL;
@@ -353,7 +361,7 @@ void savecnn(CNN* cnn, const char* filename)
 	write_rbf_config(fp);
 
 	int i,j,r;
-	// C1的数据
+	// C1卷积核和偏置，核按输入通道优先写入/读取。
 	for(i=0;i<cnn->C1->inChannels;i++)
 		for(j=0;j<cnn->C1->outChannels;j++)
 			if(covConnected(cnn->C1,i,j))
@@ -362,7 +370,7 @@ void savecnn(CNN* cnn, const char* filename)
 
 	write_exact(cnn->C1->basicData,sizeof(float),cnn->C1->outChannels,fp);
 
-	// C3网络
+	// C3：仅对60组有效连接处理权重，另有16个偏置。
 	for(i=0;i<cnn->C3->inChannels;i++)
 		for(j=0;j<cnn->C3->outChannels;j++)
 			if(covConnected(cnn->C3,i,j))
@@ -371,7 +379,7 @@ void savecnn(CNN* cnn, const char* filename)
 
 	write_exact(cnn->C3->basicData,sizeof(float),cnn->C3->outChannels,fp);
 
-	// C5网络
+	// C5卷积核和偏置。
 	for(i=0;i<cnn->C5->inChannels;i++)
 		for(j=0;j<cnn->C5->outChannels;j++)
 			if(covConnected(cnn->C5,i,j))
@@ -392,7 +400,7 @@ void savecnn(CNN* cnn, const char* filename)
 
 	if(fclose(fp) != 0) { perror(filename); exit(EXIT_FAILURE); }
 }
-// 导入cnn的数据
+// 先校验结构及固定配置，再写入已分配的网络；与savecnn的顺序严格对应。
 void importcnn(CNN* cnn, const char* filename)
 {
 	FILE  *fp=NULL;
@@ -420,12 +428,13 @@ void importcnn(CNN* cnn, const char* filename)
 	check_connections(cnn->C3,fp);
 	check_connections(cnn->C5,fp);
 	check_rbf_config(fp);
+	// 文件不保存断开槽，先将这些槽清零；有效权重稍后从文件覆盖。
 	CovLayerConnect(cnn->C1,cnn->C1->connectModel);
 	CovLayerConnect(cnn->C3,cnn->C3->connectModel);
 	CovLayerConnect(cnn->C5,cnn->C5->connectModel);
 
 	int i,j,c,r;
-	// C1的数据
+	// C1卷积核和偏置，核按输入通道优先写入/读取。
 	for(i=0;i<cnn->C1->inChannels;i++)
 		for(j=0;j<cnn->C1->outChannels;j++)
 			if(covConnected(cnn->C1,i,j))
@@ -437,7 +446,7 @@ void importcnn(CNN* cnn, const char* filename)
 	for(i=0;i<cnn->C1->outChannels;i++)
 		read_exact(&cnn->C1->basicData[i],sizeof(float),1,fp);
 
-	// C3网络
+	// C3：仅对60组有效连接处理权重，另有16个偏置。
 	for(i=0;i<cnn->C3->inChannels;i++)
 		for(j=0;j<cnn->C3->outChannels;j++)
 			if(covConnected(cnn->C3,i,j))
@@ -448,7 +457,7 @@ void importcnn(CNN* cnn, const char* filename)
 	for(i=0;i<cnn->C3->outChannels;i++)
 		read_exact(&cnn->C3->basicData[i],sizeof(float),1,fp);
 
-	// C5网络
+	// C5卷积核和偏置。
 	for(i=0;i<cnn->C5->inChannels;i++)
 		for(j=0;j<cnn->C5->outChannels;j++)
 			if(covConnected(cnn->C5,i,j))
@@ -484,6 +493,7 @@ static double training_seconds(void)
 	return (double)now.tv_sec+(double)now.tv_nsec/1e9;
 }
 
+// 同时输出到终端和可选日志文件，每次刷新，便于实时查看和保留中断前的进度。
 static void training_log(FILE* log,const char* format,...)
 {
 	va_list args;
@@ -507,7 +517,7 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 	struct tm* local=localtime(&now);
 	if(local) strftime(started,sizeof(started),"%Y-%m-%d %H:%M:%S %z",local);
 	training_log(log,"\nTraining started: %s\n",started);
-	// 学习训练误差曲线
+	// 每轮复用这段损失记录；L[0]直接取首个样本，后续为0.99/0.01指数平滑。
 	cnn->L=(float*)malloc(trainNum*sizeof(float));
 	training_log(log,"Training: %d samples, %d epochs, learning rate %.4g\n",
 		trainNum, opts.numepochs, opts.alpha);
@@ -518,10 +528,12 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 		training_log(log,"Epoch %d/%d: starting\n", e+1, opts.numepochs);
 		fflush(stdout);
 		int n=0;
+		// 固定文件顺序逐样本SGD；这里没有打乱、批量梯度或学习率衰减。
 		for(n=0;n<trainNum;n++){
-			cnnff(cnn,inputData->ImgPtr[n].ImgData);  // 前向传播，这里主要计算各
+			cnnff(cnn,inputData->ImgPtr[n].ImgData);  // 缓存当前样本各层输出和RBF距离
+			// 在更新与清空缓存之前取损失，确保日志对应本次前向结果。
 			double l=cnnloss(cnn,outputData->LabelPtr[n].LabelData);
-			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 后向传播，这里主要计算各神经元的误差梯度
+			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 计算所有层梯度，使用尚未更新的权重
 
 
 			cnnapplygrads(cnn,opts,inputData->ImgPtr[n].ImgData); // 更新权重
@@ -549,7 +561,6 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 		elapsed,seconds/3600,seconds/60%60,seconds%60);
 }
 
-// 这里InputData是图像数据，inputData[r][c],r行c列，这里根各权重模板是一致的
 // C5覆盖S4的整个5×5空间。直接用反向下标做数学卷积，避免临时旋转数组。
 static void c5ff(CNN* cnn)
 {
@@ -574,9 +585,9 @@ static void c5ff(CNN* cnn)
 
 void cnnff(CNN* cnn,float** inputData)
 {
-	// 第一层的传播
+	// C1：单张inputData[行][列]，32×32×1 -> 28×28×6。
 	int i,j,r,c;
-	// 第一层输出数据
+	// nSize是{宽,高}；卷积输出缓冲会累加，样本之间须调用cnnclear。
 	nSize mapSize={cnn->C1->mapSize,cnn->C1->mapSize};
 	nSize inSize={cnn->C1->inputWidth,cnn->C1->inputHeight};
 	nSize outSize={cnn->S2->inputWidth,cnn->S2->inputHeight};
@@ -628,7 +639,8 @@ void cnnff(CNN* cnn,float** inputData)
 	outSize.c=cnn->C5->inputWidth-cnn->C5->mapSize+1;
 	outSize.r=cnn->C5->inputHeight-cnn->C5->mapSize+1;
 
-	// C5展平后输入F6，nnff包含偏置，激活时不再重复添加。
+	// C5按通道、行、列展平：k=i*H*W+r*W+c；当前空间1×1，得到120维。
+	// nnff已经加偏置，激活函数只处理z。
 	float* F6inData=(float*)malloc(cnn->F6->inputNum*sizeof(float));
 	for(i=0;i<cnn->C5->outChannels;i++)
 		for(r=0;r<outSize.r;r++)
@@ -669,7 +681,7 @@ void poolff(PoolLayer* pool,float*** input)
 }
 
 
-// 单层全连接神经网络的前向传播
+// 点积返回一个标量，不是逐元素乘积向量。
 float vecMulti(float* vec1,float* vec2,int vecL)// 两向量相乘
 {
 	int i;
@@ -679,6 +691,7 @@ float vecMulti(float* vec1,float* vec2,int vecL)// 两向量相乘
 	return m;
 }
 
+// output[j]=sum_i(wdata[j][i]*input[i])+bas[j]；仅线性运算，不执行激活。
 void nnff(float* output,float* input,float** wdata,float* bas,nSize nnSize)
 {
 	int w=nnSize.c;
@@ -721,6 +734,7 @@ void poolapplygrads(PoolLayer* pool,float alpha)
 	}
 }
 
+// outputData为10维one-hot；argmax得到数字编号，RBF不直接回归这10个标签值。
 double cnnloss(const CNN* cnn,const float* outputData)
 {
 	int target=0;
@@ -765,7 +779,7 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	poolbp(cnn->S4);
 
 	// C3层
-	// 由S4层传递的各反向误差,这里只是在S4的梯度上扩充一倍
+	// 将S4的dL/dz复制到对应2×2窗口，再乘S4的a及C3激活导数。
 	nSize S4dSize={cnn->S4->inputWidth/cnn->S4->mapSize,cnn->S4->inputHeight/cnn->S4->mapSize};
 	// z=a*sum+b，反向到每个输入的系数是a，不再固定除以窗口面积。
 	for(i=0;i<cnn->C3->outChannels;i++){
@@ -796,7 +810,7 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	}
 	poolbp(cnn->S2);
 
-	// C1层，卷积层
+	// S2 -> C1：与S4 -> C3相同的链式法则，最终得到28×28×6个dL/dz。
 	nSize S2dSize={cnn->S2->inputWidth/cnn->S2->mapSize,cnn->S2->inputHeight/cnn->S2->mapSize};
 	// z=a*sum+b，反向到每个输入的系数是a，不再固定除以窗口面积。
 	for(i=0;i<cnn->C1->outChannels;i++){
@@ -812,10 +826,10 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 {
-	// 全部反传完成后，统一更新卷积、输出层和下采样层参数。
+	// 所有d已用旧权重算完，再执行w-=alpha*dL/dw；更新C1/C3/C5/F6和S2/S4，RBF固定。
 	int i,j,r,c;
 
-	// C1层的权重更新
+	// C1的共享权重梯度累加所有输出位置：g[a][b]=sum(d[r][c]*x[r+K-1-a][c+K-1-b])。
 	nSize dSize={cnn->S2->inputHeight,cnn->S2->inputWidth};
 	nSize ySize={cnn->C1->inputHeight,cnn->C1->inputWidth};
 	nSize mapSize={cnn->C1->mapSize,cnn->C1->mapSize};
@@ -823,8 +837,10 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 	for(i=0;i<cnn->C1->outChannels;i++){
 		for(j=0;j<cnn->C1->inChannels;j++){
 			if(!covConnected(cnn->C1,j,i)) continue;
+			// cov内部还会旋转d；这里旋转输入，以得到原始存储方向上的核梯度。
 			float** flipinputData=rotate180(inputData,ySize);
 			float** C1dk=cov(cnn->C1->d[i],dSize,flipinputData,ySize,valid);
+			// C1dk从梯度变为参数增量-alpha*g，再加回权重。
 			multifactor(C1dk,C1dk,mapSize,-1*opts.alpha);
 			addmat(cnn->C1->mapData[j][i],cnn->C1->mapData[j][i],mapSize,C1dk,mapSize);
 			for(r=0;r<mapSize.r;r++)
@@ -834,10 +850,11 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 				free(flipinputData[r]);
 			free(flipinputData);
 		}
+		// 一个通道的偏置作用于全部输出位置，因此偏置梯度是该通道d之和。
 		cnn->C1->basicData[i]=cnn->C1->basicData[i]-opts.alpha*summat(cnn->C1->d[i],dSize);
 	}
 
-	// C3层的权重更新
+	// C3同样求共享核梯度，但输入是S2.y，且只更新连接表中的有效核。
 	dSize.c=cnn->S4->inputWidth;
 	dSize.r=cnn->S4->inputHeight;
 	ySize.c=cnn->C3->inputWidth;
@@ -897,7 +914,7 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 
 void cnnclear(CNN* cnn)
 {
-	// 将神经元的部分数据清除
+	// 清理每样本的累加缓冲；不修改模型参数或L。C5的dmapData由下次更新覆盖。
 	int j,c,r;
 	// C1网络
 	for(j=0;j<cnn->C1->outChannels;j++){
@@ -921,7 +938,7 @@ void cnnclear(CNN* cnn)
 			}
 		}
 	}
-	// C3网络
+	// C3的中间结果。
 	for(j=0;j<cnn->C3->outChannels;j++){
 		for(r=0;r<cnn->S4->inputHeight;r++){
 			for(c=0;c<cnn->S4->inputWidth;c++){
@@ -961,8 +978,9 @@ void cnnclear(CNN* cnn)
 
 }
 
-// 这是用于测试的函数
-void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN网络中的相关数据
+// 原项目保留的调试转储函数，当前CLI没有调用。
+// 包含特征图和完整核槽，文件无模型版本头，不能交给importcnn读取。
+void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 导出当前输入、参数和中间结果供离线观察
 {
 	FILE  *fp=NULL;
 	fp=fopen(filename,"wb");
@@ -971,9 +989,9 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 		exit(EXIT_FAILURE);
 	}
 
-	// C1的数据
+	// 当前输入图片。
 	int i,j,r;
-	// C1网络
+	// 先写输入图片，再写C1权重、偏置及v/d/y。
 	for(i=0;i<cnn->C1->inputHeight;i++)
 		fwrite(inputdata[i],sizeof(float),cnn->C1->inputWidth,fp);
 	for(i=0;i<cnn->C1->inChannels;i++)
@@ -995,7 +1013,7 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 		}
 	}
 
-	// S2网络
+	// S2的d/y；此历史转储不包含S2的可训练参数。
 	for(j=0;j<cnn->S2->outChannels;j++){
 		for(r=0;r<cnn->C3->inputHeight;r++){
 			fwrite(cnn->S2->d[j][r],sizeof(float),cnn->C3->inputWidth,fp);
@@ -1004,7 +1022,7 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 			fwrite(cnn->S2->y[j][r],sizeof(float),cnn->C3->inputWidth,fp);
 		}
 	}
-	// C3网络
+	// C3完整权重存储槽（含断开连接）、偏置及v/d/y。
 	for(i=0;i<cnn->C3->inChannels;i++)
 		for(j=0;j<cnn->C3->outChannels;j++)
 			for(r=0;r<cnn->C3->mapSize;r++)
@@ -1024,7 +1042,7 @@ void savecnndata(CNN* cnn,const char* filename,float** inputdata) // 保存CNN�
 		}
 	}
 
-	// S4网络
+	// S4的d/y；此历史转储不包含S4的可训练参数。
 	for(j=0;j<cnn->S4->outChannels;j++){
 		for(r=0;r<cnn->S4->inputHeight/cnn->S4->mapSize;r++){
 			fwrite(cnn->S4->d[j][r],sizeof(float),cnn->S4->inputWidth/cnn->S4->mapSize,fp);

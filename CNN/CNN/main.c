@@ -16,15 +16,17 @@ static void usage(const char *program)
     printf("Seed defaults to current time; --seed selects a reproducible initialization.\n");
 }
 
+// 从标准输入接收无头28×28灰度字节，标准输出仅写JSON供GUI解析。
 static int predict(const char *model)
 {
+    // 同时检查短输入和多余字节；PNG/JPEG/完整IDX文件不符合该接口。
     unsigned char pixels[28 * 28];
     if (fread(pixels, 1, sizeof(pixels), stdin) != sizeof(pixels) ||
         fgetc(stdin) != EOF) {
         fprintf(stderr, "Expected exactly 784 grayscale bytes on stdin\n");
         return EXIT_FAILURE;
     }
-    /* Keep the raw drawing 28x28; use exactly the same preprocessing as read_Img. */
+    /* 与read_Img一致：先用-0.1填满32×32，再在中央写入归一化后的28×28像素。 */
     float data[32][32];
     float *rows[32];
     for (int r = 0; r < 32; ++r) {
@@ -37,8 +39,10 @@ static int predict(const char *model)
     CNN cnn = {0};
     nSize size = {32, 32};
     cnnsetup(&cnn, size, 10);
+    // setup先分配内存，import再覆盖参数；这里不训练或修改模型文件。
     importcnn(&cnn, model);
     cnnff(&cnn, rows);
+    // RBF是距离而非概率，预测取最小值。
     int best = 0;
     for (int i = 0; i < 10; ++i) {
         if (!isfinite(cnn.O7.y[i])) {
@@ -56,6 +60,7 @@ static int predict(const char *model)
 
 int main(int argc, char **argv)
 {
+    // 默认时间种子；显式--seed只用于train，先完整校验再初始化网络。
     unsigned seed = (unsigned)time(NULL);
     if (argc == 7 && strcmp(argv[1], "train") == 0 && strcmp(argv[5], "--seed") == 0) {
         const char *value = argv[6];
@@ -68,7 +73,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         seed = (unsigned)parsed;
-        argc = 5;
+        argc = 5; // 已消费末尾--seed及其值，复用下面的五参数检查。
     }
     srand(seed); // 整个程序只设置一次，各层不得重新播种。
 
@@ -84,6 +89,7 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    // 图片和标签的样本顺序必须相同；读取器已将图片转换为32×32。
     ImgArr images = read_Img(argv[2]);
     LabelArr labels = read_Lable(argv[3]);
     if (images->ImgNum <= 0 || images->ImgNum != labels->LabelNum ||
@@ -96,11 +102,13 @@ int main(int argc, char **argv)
     nSize input_size = {32, 32};
     cnnsetup(&cnn, input_size, 10);
     if (strcmp(argv[1], "train") == 0) {
+        // 每次train都从新初始化开始，不载入旧模型继续训练。
         CNNOpts options = {10, 0.001f};
         size_t log_size = strlen(argv[4]) + sizeof(".train.log");
         char *log_path = malloc(log_size);
         if (!log_path) { perror("training log path"); return EXIT_FAILURE; }
         snprintf(log_path, log_size, "%s.train.log", argv[4]);
+        // 日志追加保留多次运行；savecnn在训练完成后覆盖同名模型。
         FILE *log = fopen(log_path, "a");
         if (!log) { perror(log_path); free(log_path); return EXIT_FAILURE; }
         printf("Training log: %s\n", log_path);
@@ -120,6 +128,7 @@ int main(int argc, char **argv)
         free(log_path);
     } else {
         importcnn(&cnn, argv[4]);
+        // cnntest返回错误率，准确率为1-error。
         float error = cnntest(&cnn, images, labels, images->ImgNum);
         printf("Samples: %d, accuracy: %.2f%%, error rate: %.2f%%\n",
                images->ImgNum, (1.0f - error) * 100.0f, error * 100.0f);

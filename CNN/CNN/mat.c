@@ -22,36 +22,34 @@ float** rotate180(float** mat, nSize matSize)// 矩阵翻转180度
 	return outputData;
 }
 
-// 关于卷积和相关操作的输出选项
-// 这里共有三种选择：full、same、valid，分别表示
-// full指完全，操作后结果的大小为inSize+(mapSize-1)
-// same指同输入相同大小
-// valid指完全操作后的大小，一般为inSize-(mapSize-1)大小，其不需要将输入添0扩大。
+/* 先补零计算full互相关，再按type裁剪。map不翻转，cov负责数学卷积的翻转。
+ * full: N+K-1；valid: N-K+1（本项目使用宽高同奇偶的核）。
+ * same用对称裁剪：奇数核得到N，双偶数核得到N-1，并非一般库的非对称same规则。
+ * 当前宽高奇偶不同的核没有独立处理；本网络用正方形核和full/valid路径。
+ */
 
 float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int type)// 互相关
 {
-	// 这里的互相关是在后向传播时调用，类似于将Map反转180度再卷积
-	// 为了方便计算，这里先将图像扩充一圈
-	// 这里的卷积要分成两拨，偶数模板同奇数模板
+	// 正向cov调用这里，反向传播也直接使用；以下半尺寸用于确定裁剪边宽。
 	int i,j,c,r;
 	int halfmapsizew;
 	int halfmapsizeh;
-	if(mapSize.r%2==0&&mapSize.c%2==0){ // 模板大小为偶数
-		halfmapsizew=(mapSize.c)/2; // 卷积模块的半瓣大小
+	if(mapSize.r%2==0&&mapSize.c%2==0){ // 核宽高均为偶数
+		halfmapsizew=(mapSize.c)/2; // 用于后续裁剪的半宽
 		halfmapsizeh=(mapSize.r)/2;
 	}else{
-		halfmapsizew=(mapSize.c-1)/2; // 卷积模块的半瓣大小
+		halfmapsizew=(mapSize.c-1)/2; // 用于后续裁剪的半宽
 		halfmapsizeh=(mapSize.r-1)/2;
 	}
 
-	// 这里先默认进行full模式的操作，full模式的输出大小为inSize+(mapSize-1)
-	int outSizeW=inSize.c+(mapSize.c-1); // 这里的输出扩大一部分
+	// full模式每维长度为输入长度+核长度-1。
+	int outSizeW=inSize.c+(mapSize.c-1); // full输出宽度
 	int outSizeH=inSize.r+(mapSize.r-1);
-	float** outputData=(float**)malloc(outSizeH*sizeof(float*)); // 互相关的结果扩大了
+	float** outputData=(float**)malloc(outSizeH*sizeof(float*)); // 分配输出行指针，各行再单独分配
 	for(i=0;i<outSizeH;i++)
 		outputData[i]=(float*)calloc(outSizeW,sizeof(float));
 
-	// 为了方便计算，将inputData扩大一圈
+	// 左右各补mapSize.c-1列0，上下各补mapSize.r-1行0。
 	float** exInputData=matEdgeExpand(inputData,inSize,mapSize.c-1,mapSize.r-1);
 
 	for(j=0;j<outSizeH;j++)
@@ -66,8 +64,8 @@ float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int
 	free(exInputData);
 
 	nSize outSize={outSizeW,outSizeH};
-	switch(type){ // 根据不同的情况，返回不同的结果
-	case full: // 完全大小的情况
+	switch(type){ // 裁剪会产生新矩阵，返回前释放不再使用的full结果
+	case full: // 直接交给调用方释放
 		return outputData;
 	case same:{
 		float** sameres=matEdgeShrink(outputData,outSize,halfmapsizew,halfmapsizeh);
@@ -104,7 +102,7 @@ float** cov(float** map,nSize mapSize,float** inputData,nSize inSize,int type) /
 	return res;
 }
 
-// 这个是矩阵的上采样（等值内插），upc及upr是内插倍数
+// 每个元素复制为upr行×upc列的常值块；池化反传中的乘系数由调用方完成。
 float** UpSample(float** mat,nSize matSize,int upc,int upr)
 {
 	int i,j,m,n;
@@ -115,20 +113,20 @@ float** UpSample(float** mat,nSize matSize,int upc,int upr)
 		res[i]=(float*)malloc((c*upc)*sizeof(float));
 
 	for(j=0;j<r*upr;j=j+upr){
-		for(i=0;i<c*upc;i=i+upc)// 宽的扩充
+		for(i=0;i<c*upc;i=i+upc)// 在输出块的首行横向复制
 			for(m=0;m<upc;m++)
 				res[j][i+m]=mat[j/upr][i/upc];
 
-		for(n=1;n<upr;n++)      //  高的扩充
+		for(n=1;n<upr;n++)      // 将该首行向下复制
 			for(i=0;i<c*upc;i++)
 				res[j+n][i]=res[j][i];
 	}
 	return res;
 }
 
-// 给二维矩阵边缘扩大，增加addw大小的0值边
+// 左右各补addc列0，上下各补addr行0，保留中心区域数据。
 float** matEdgeExpand(float** mat,nSize matSize,int addc,int addr)
-{ // 向量边缘扩大
+{
 	int i,j;
 	int c=matSize.c;
 	int r=matSize.r;
@@ -141,15 +139,15 @@ float** matEdgeExpand(float** mat,nSize matSize,int addc,int addr)
 			if(j<addr||i<addc||j>=(r+addr)||i>=(c+addc))
 				res[j][i]=(float)0.0;
 			else
-				res[j][i]=mat[j-addr][i-addc]; // 复制原向量的数据
+				res[j][i]=mat[j-addr][i-addc]; // 复制输入矩阵对应位置
 		}
 	}
 	return res;
 }
 
-// 给二维矩阵边缘缩小，擦除shrinkc大小的边
+// 左右各裁shrinkc列，上下各裁shrinkr行；需保证裁剪后尺寸为正。
 float** matEdgeShrink(float** mat,nSize matSize,int shrinkc,int shrinkr)
-{ // 向量的缩小，宽缩小addw，高缩小addh
+{
 	int i,j;
 	int c=matSize.c;
 	int r=matSize.r;
@@ -161,12 +159,13 @@ float** matEdgeShrink(float** mat,nSize matSize,int shrinkc,int shrinkr)
 	for(j=0;j<r;j++){
 		for(i=0;i<c;i++){
 			if(j>=shrinkr&&i>=shrinkc&&j<(r-shrinkr)&&i<(c-shrinkc))
-				res[j-shrinkr][i-shrinkc]=mat[j][i]; // 复制原向量的数据
+				res[j-shrinkr][i-shrinkc]=mat[j][i]; // 复制输入矩阵对应位置
 		}
 	}
 	return res;
 }
 
+// 历史导出工具：连续逐行写float，不保存行列数，也不是图片编码格式。
 void savemat(float** mat,nSize matSize,const char* filename)
 {
 	FILE  *fp=NULL;
@@ -182,6 +181,7 @@ void savemat(float** mat,nSize matSize,const char* filename)
 	fclose(fp);
 }
 
+// 调用方须保证两个输入同尺寸；当前尺寸不匹配只打印提示，不会停止循环。
 void addmat(float** res, float** mat1, nSize matSize1, float** mat2, nSize matSize2)// 矩阵相加
 {
 	int i,j;
