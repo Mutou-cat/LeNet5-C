@@ -11,7 +11,7 @@
 本仓库在原项目基础上进行学习和修改，主要包括：整理为C11/GCC构建，逐步改造LeNet-5各层及RBF输出，调整初始化和模型保存方式，增加训练进度、耗时日志及手写识别窗口。感谢原作者提供的代码和教程。
 
 - 原始GitHub仓库：[tostq/DeepLearningC](https://github.com/tostq/DeepLearningC)
-- 原作者教程：[用C语言实现卷积神经网络相关教程](http://blog.csdn.net/tostq/article/details/51786265)
+
 
 ## 快速开始
 
