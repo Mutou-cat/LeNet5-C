@@ -1,3 +1,5 @@
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,9 +9,11 @@
 static void usage(const char *program)
 {
     printf("Usage: %s test|train IMAGES LABELS MODEL\n", program);
+    printf("       %s train IMAGES LABELS MODEL --seed UINT\n", program);
     printf("       %s predict MODEL < pixels.raw (784 grayscale bytes)\n", program);
     printf("MNIST images must be 28x28 IDX files; labels must be IDX files.\n");
     printf("Training uses 10 epochs and learning rate 0.001.\n");
+    printf("Seed defaults to current time; --seed selects a reproducible initialization.\n");
 }
 
 static int predict(const char *model)
@@ -52,6 +56,22 @@ static int predict(const char *model)
 
 int main(int argc, char **argv)
 {
+    unsigned seed = (unsigned)time(NULL);
+    if (argc == 7 && strcmp(argv[1], "train") == 0 && strcmp(argv[5], "--seed") == 0) {
+        const char *value = argv[6];
+        char *end;
+        errno = 0;
+        unsigned long parsed = strtoul(value, &end, 10);
+        if (!*value || strspn(value, "0123456789") != strlen(value) ||
+            *end || errno == ERANGE || parsed > UINT_MAX) {
+            fprintf(stderr, "Seed must be an unsigned integer between 0 and %u\n", UINT_MAX);
+            return EXIT_FAILURE;
+        }
+        seed = (unsigned)parsed;
+        argc = 5;
+    }
+    srand(seed); // 整个程序只设置一次，各层不得重新播种。
+
     if (argc == 3 && strcmp(argv[1], "predict") == 0)
         return predict(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
@@ -84,6 +104,10 @@ int main(int argc, char **argv)
         FILE *log = fopen(log_path, "a");
         if (!log) { perror(log_path); free(log_path); return EXIT_FAILURE; }
         printf("Training log: %s\n", log_path);
+        printf("Initialization seed: %u\n", seed);
+        if (fprintf(log, "\nInitialization seed: %u\n", seed) < 0) {
+            perror(log_path); fclose(log); free(log_path); return EXIT_FAILURE;
+        }
         cnntrain(&cnn, images, labels, options, images->ImgNum, log);
         savecnn(&cnn, argv[4]);
         printf("Training finished: %d samples; model saved to %s\n",
