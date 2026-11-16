@@ -143,6 +143,10 @@ F6复用`OutLayer`数据结构，接收C5展平后的120个值，输出84个值�
 更新时权重梯度为`d[j]*C5.y[k]`，偏置梯度为`d[j]`。
 模型文件包含全部F6权重和偏置。
 
+所有层统一先完成加偏置，再调用单参数`activation_Sigma(z)`。
+C1、C3、C5及F6的`v`统一保存含偏置的z；下采样层用局部变量z。
+这一接口整理不改变网络计算结果，已有`DLCRBF01`模型可直接使用。
+
 ## RBF输出与损失
 
 依据[原论文第II节、式(7)/(9)及Fig.3](https://princetonuniversity.github.io/NEU-PSY-502/_static/pdf/Class%204/LeCunn1998.pdf)，

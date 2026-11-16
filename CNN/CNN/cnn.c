@@ -547,8 +547,8 @@ static void c5ff(CNN* cnn)
 							sum+=layer->mapData[i][o][a][b]*
 								cnn->S4->y[i][r+layer->mapSize-1-a][c+layer->mapSize-1-b];
 				}
-				layer->v[o][r][c]=sum;
-				layer->y[o][r][c]=activation_Sigma(sum,layer->basicData[o]);
+				layer->v[o][r][c]=sum+layer->basicData[o];
+				layer->y[o][r][c]=activation_Sigma(layer->v[o][r][c]);
 			}
 }
 
@@ -570,8 +570,10 @@ void cnnff(CNN* cnn,float** inputData)
 			free(mapout);
 		}
 		for(r=0;r<outSize.r;r++)
-			for(c=0;c<outSize.c;c++)
-				cnn->C1->y[i][r][c]=activation_Sigma(cnn->C1->v[i][r][c],cnn->C1->basicData[i]);
+			for(c=0;c<outSize.c;c++) {
+				cnn->C1->v[i][r][c]+=cnn->C1->basicData[i];
+				cnn->C1->y[i][r][c]=activation_Sigma(cnn->C1->v[i][r][c]);
+			}
 	}
 
 	// S2：窗口求和、乘每通道系数、加偏置、缩放tanh。
@@ -594,8 +596,10 @@ void cnnff(CNN* cnn,float** inputData)
 			free(mapout);
 		}
 		for(r=0;r<outSize.r;r++)
-			for(c=0;c<outSize.c;c++)
-				cnn->C3->y[i][r][c]=activation_Sigma(cnn->C3->v[i][r][c],cnn->C3->basicData[i]);
+			for(c=0;c<outSize.c;c++) {
+				cnn->C3->v[i][r][c]+=cnn->C3->basicData[i];
+				cnn->C3->y[i][r][c]=activation_Sigma(cnn->C3->v[i][r][c]);
+			}
 	}
 
 	// S4采用与S2相同的可训练下采样。
@@ -613,17 +617,16 @@ void cnnff(CNN* cnn,float** inputData)
 	nSize f6Size={cnn->F6->inputNum,cnn->F6->outputNum};
 	nnff(cnn->F6->v,F6inData,cnn->F6->wData,cnn->F6->basicData,f6Size);
 	for(i=0;i<cnn->F6->outputNum;i++)
-		cnn->F6->y[i]=activation_Sigma(cnn->F6->v[i],0.0f);
+		cnn->F6->y[i]=activation_Sigma(cnn->F6->v[i]);
 	free(F6inData);
 	rbfff(&cnn->O7,cnn->F6->y);
 }
 
-// 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
-float activation_Sigma(float input,float bas) // LeNet-5缩放tanh激活函数
+// 只负责激活；z是调用方已经加好偏置的结果。
+float activation_Sigma(float z) // LeNet-5缩放tanh激活函数
 {
 	const float A=1.7159f;
 	const float S=2.0f/3.0f;
-	float z=input+bas;
 	return A*tanhf(S*z);
 }
 
@@ -640,7 +643,8 @@ void poolff(PoolLayer* pool,float*** input)
 					for(int dc=0;dc<pool->mapSize;dc++)
 						sum+=input[i][r*pool->mapSize+dr][c*pool->mapSize+dc];
 				pool->sumData[i][r][c]=sum;
-				pool->y[i][r][c]=activation_Sigma(pool->scaleData[i]*sum,pool->basicData[i]);
+				float z=pool->scaleData[i]*sum+pool->basicData[i];
+				pool->y[i][r][c]=activation_Sigma(z);
 			}
 }
 

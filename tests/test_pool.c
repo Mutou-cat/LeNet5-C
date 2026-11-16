@@ -57,7 +57,7 @@ static void check_pool(void)
                 for(int dr=0;dr<2;dr++) for(int dc=0;dc<2;dc++)
                     sum+=data[i][2*r+dr][2*c+dc];
                 near(p->sumData[i][r][c],sum,1e-6f);
-                near(p->y[i][r][c],activation_Sigma(p->scaleData[i]*sum,p->basicData[i]),1e-6f);
+                near(p->y[i][r][c],activation_Sigma(p->scaleData[i]*sum+p->basicData[i]),1e-6f);
                 p->d[i][r][c]=0.1f*(1+i+r)-0.07f*c;
             }
     poolbp(p);

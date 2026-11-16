@@ -31,7 +31,7 @@ typedef struct convolutional_layer{
 	bool* connectModel; // [输入通道*outChannels+输出通道]，true为有效连接
 
 	// 下面三者的大小同输出的维度相同
-	float*** v; // 进入激活函数的输入值
+	float*** v; // 加偏置后的z，也是激活函数的输入值
 	float*** y; // 激活函数后神经元的输出
 
 	// 输出像素的局部梯度
@@ -66,7 +66,7 @@ typedef struct nn_layer{
 	float* basicData;   //偏置，大小为outputNum大小
 
 	// 下面三者的大小同输出的维度相同
-	float* v; // 进入激活函数的输入值
+	float* v; // 加偏置后的z，也是激活函数的输入值
 	float* y; // 激活函数后神经元的输出
 	float* d; // 网络的局部梯度,δ值
 
@@ -115,8 +115,8 @@ void PoolLayerConnect(PoolLayer* poolL,bool* connectModel);
 // 初始化输出层
 OutLayer* initOutLayer(int inputNum,int outputNum);
 
-// 激活函数 input是数据，inputNum说明数据数目，bas表明偏置
-float activation_Sigma(float input,float bas); // LeNet-5缩放tanh：1.7159*tanh((2/3)*(input+bas))
+// 只负责激活；z由各层先完成加偏置。
+float activation_Sigma(float z); // LeNet-5缩放tanh：1.7159*tanh((2/3)*z)
 
 void poolff(PoolLayer* pool,float*** input); // 可训练下采样前向计算
 void poolbp(PoolLayer* pool); // 将dL/dy转换为dL/dz，并求a、b的梯度

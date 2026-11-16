@@ -67,7 +67,7 @@ int main(void)
         for(int i=0;i<6;i++) if(mask[i][j])
             for(int a=0;a<5;a++) for(int b=0;b<5;b++)
                 sum+=cnn.C3->mapData[i][j][4-a][4-b]*cnn.S2->y[i][r+a][c+b];
-        near(cnn.C3->v[j][r][c],sum,0.00001f);
+        near(cnn.C3->v[j][r][c],sum+cnn.C3->basicData[j],0.00001f);
     }
     cnnbp(&cnn,target);
     /* Scatter output gradients through only connected kernels to obtain dL/d(S2.y). */

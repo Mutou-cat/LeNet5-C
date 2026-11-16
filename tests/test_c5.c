@@ -57,14 +57,14 @@ int main(void)
             float** result=cov(cnn.C5->mapData[i][o],five,cnn.S4->y[i],five,valid);
             expected+=result[0][0];free(result[0]);free(result);
         }
-        near(cnn.C5->v[o][0][0],expected,0.000003f);
-        near(cnn.C5->y[o][0][0],activation_Sigma(expected,cnn.C5->basicData[o]),0.000003f);
+        near(cnn.C5->v[o][0][0],expected+cnn.C5->basicData[o],0.000003f);
+        near(cnn.C5->y[o][0][0],activation_Sigma(expected+cnn.C5->basicData[o]),0.000003f);
     }
     for(int j=0;j<84;j++) {
         float z=cnn.F6->basicData[j];
         for(int k=0;k<120;k++) z+=cnn.F6->wData[j][k]*cnn.C5->y[k][0][0];
         near(cnn.F6->v[j],z,0.000003f);
-        near(cnn.F6->y[j],activation_Sigma(z,0),0.000003f);
+        near(cnn.F6->y[j],activation_Sigma(z),0.000003f);
     }
     cnnbp(&cnn,target);
     for(int j=0;j<84;j++) {
