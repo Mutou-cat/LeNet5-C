@@ -21,6 +21,8 @@ gui: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
+# $<是源文件，$@是目标文件；上方链接规则的$^表示全部目标文件。
+# | build为顺序依赖：先建目录，但目录时间戳变化不会触发全部重编译。
 # -MMD/-MP生成头文件依赖，修改.h后会重新编译依赖它的.c。
 build/%.o: CNN/CNN/%.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
@@ -32,4 +34,5 @@ build:
 clean:
 	rm -rf build
 
+# 首次构建尚无.d文件，-include允许忽略缺失；后续读取编译器生成的依赖。
 -include $(OBJECTS:.o=.d)

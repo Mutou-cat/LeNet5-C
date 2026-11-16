@@ -28,6 +28,7 @@ static int predict(const char *model)
     }
     /* 与read_Img一致：先用-0.1填满32×32，再在中央写入归一化后的28×28像素。 */
     float data[32][32];
+    // 连续二维数组不能直接强转float**；用行指针表适配cnnff接口，生命周期覆盖推理。
     float *rows[32];
     for (int r = 0; r < 32; ++r) {
         rows[r] = data[r];
@@ -66,6 +67,7 @@ int main(int argc, char **argv)
         const char *value = argv[6];
         char *end;
         errno = 0;
+        // strtoul本身允许空白和符号，下面再限定纯十进制数字并检查溢出/尾随字符。
         unsigned long parsed = strtoul(value, &end, 10);
         if (!*value || strspn(value, "0123456789") != strlen(value) ||
             *end || errno == ERANGE || parsed > UINT_MAX) {

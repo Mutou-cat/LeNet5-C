@@ -52,6 +52,7 @@ float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int
 	// 左右各补mapSize.c-1列0，上下各补mapSize.r-1行0。
 	float** exInputData=matEdgeExpand(inputData,inSize,mapSize.c-1,mapSize.r-1);
 
+	// full输出(j,i)的核左上角在原输入(j-(Kh-1), i-(Kw-1))，补零处理越界。
 	for(j=0;j<outSizeH;j++)
 		for(i=0;i<outSizeW;i++)
 			for(r=0;r<mapSize.r;r++)
@@ -75,6 +76,7 @@ float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int
 		return sameres;
 		}
 	case valid:{
+		// 宽高同奇偶时，每侧裁K-1个位置，只保留核完全落在输入内的结果。
 		float** validres;
 		if(mapSize.r%2==0&&mapSize.c%2==0)
 			validres=matEdgeShrink(outputData,outSize,halfmapsizew*2-1,halfmapsizeh*2-1);
@@ -85,7 +87,7 @@ float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int
 		free(outputData);
 		return validres;
 		}
-	default:
+	default: // 历史行为：未知type按full返回，没有参数报错。
 		return outputData;
 	}
 }

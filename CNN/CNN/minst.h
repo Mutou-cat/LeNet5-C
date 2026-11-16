@@ -1,7 +1,8 @@
 #ifndef __MINST_
 #define __MINST_
 /* MNIST IDX接口，Minst/read_Lable保留原项目命名。
- * 图片与标签按下标对应；返回的容器、行数组和标签向量在堆上分配。 */
+ * 图片与标签按下标对应；返回的容器、行数组和标签向量在堆上分配。
+ * 读入后文件已关闭；数据仍有效。若释放，须先逐行/逐标签释放，再释放结构体数组及容器。 */
 
 #include <stdlib.h>
 #include <string.h>

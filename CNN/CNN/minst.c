@@ -13,6 +13,9 @@ int ReverseInt(int i)
 	return ((int)split[0])<<24 | split[1]<<16 | split[2]<<8 | split[3];
 }
 
+/* IDX图像布局：4个大端32位整数（魔数、张数、行数、列数），随后是逐图逐行像素。
+ * 无压缩、无行分隔符；第i张图的第(r,c)字节偏移为16+i*784+r*28+c。
+ */
 ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×32的LeNet-5输入
 {
 	FILE  *fp=NULL;
@@ -71,6 +74,7 @@ ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×
 				imgarr->ImgPtr[i].ImgData[r][c]=-0.1f;
 		}
 
+		// 中心区域写入行/列2..29，行/列0、1、30、31保持-0.1。
 		// 每张图只读文件中原有的784个像素，避免读取位置错位。
 		for(r = 0; r < n_rows; ++r)
 		{
@@ -89,6 +93,7 @@ ImgArr read_Img(const char* filename) // 读取28×28的MNIST图像，返回32×
 	return imgarr;
 }
 
+// 标签第i项位于文件偏移8+i，存数值0..9而非ASCII字符；如字节3变为[0,0,0,1,0,...]。
 LabelArr read_Lable(const char* filename)// 读取标签：8字节头后，每个样本占1字节
 {
 	FILE  *fp=NULL;
@@ -140,6 +145,7 @@ char* intTochar(int i)// 将非负整数转为十进制字符串，返回堆内�
 		itemp=itemp/10;
 		w++;
 	}
+	// w是最高位下标；w+1个数字再加一个结束符，48为ASCII字符'0'。
 	char* ptr=(char*)malloc((w+2)*sizeof(char));
 	ptr[w+1]='\0';
 	int r; // 余数

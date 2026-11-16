@@ -2,7 +2,8 @@
 #define DLC_RBF_H
 
 enum { RBF_INPUTS=84, RBF_CLASSES=10, RBF_ROWS=12, RBF_COLS=7 };
-/* 论文式(9)中的背景类别惩罚j；10是本实现的明确选择。 */
+/* 论文式(9)中的背景类别惩罚j，源码注释以J表示以免与类别下标混淆。
+ * 10是本实现的选择；它进入损失归一化项，不是rbfPredict的拒识阈值。 */
 #define RBF_REJECT_COST 10.0
 
 typedef struct rbf_layer {

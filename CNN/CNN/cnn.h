@@ -84,7 +84,7 @@ typedef struct cnn_network{
 	OutLayer* F6; // C5的120维输出 -> 84维缩放tanh
 	RbfLayer O7; // 固定84维模板 -> 10个平方距离
 
-	float* L; // 按样本记录的平滑MAP损失，长度trainNum；每轮覆盖
+	float* L; // 仅cnntrain分配；平滑MAP损失长度trainNum，每轮覆盖，不用于求导
 }CNN;
 
 typedef struct train_opts{
@@ -92,12 +92,12 @@ typedef struct train_opts{
 	float alpha; // 普通SGD学习率
 }CNNOpts;
 
-// 调用方在首次初始化前设置一次srand(seed)，各层不会重置随机序列。
+// 调用方先令CNN对象为零，并设置一次srand(seed)；当前结构使用{32,32}、10类。
 void cnnsetup(CNN* cnn,nSize inputSize,int outputSize);
 /* 训练前trainNum个样本，每个样本更新一次；不在此函数中保存模型。
  * 图片与标签须一一对应，trainNum须为正且不超过数组长度，调用前须清空中间量。 */
 void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum,FILE* log); // log可为NULL；否则同步记录进度和耗时
-// 评估前testNum个样本，返回错误率；testNum须为正且不超过数组长度。
+// 评估前testNum个样本，返回错误率；数量须有效，首次前向前须清空中间量。
 float cnntest(CNN* cnn, ImgArr inputData,LabelArr outputData,int testNum);
 // 保存结构、RBF配置及参数，不保存特征图或训练进度。
 void savecnn(CNN* cnn, const char* filename);
@@ -126,8 +126,8 @@ void poolapplygrads(PoolLayer* pool,float alpha);
 // inputData[行][列]为32×32预处理图片；后续样本调用前须先cnnclear。
 void cnnff(CNN* cnn,float** inputData); // 网络的前向传播
 double cnnloss(const CNN* cnn,const float* outputData); // 根据10维one-hot标签读取当前前向结果的MAP损失
-void cnnbp(CNN* cnn,float* outputData); // 读取前向缓存及标签，计算梯度但不更新参数
-// 完整反传后调用；inputData须为同一个样本，RBF模板不更新。
+void cnnbp(CNN* cnn,float* outputData); // 计算各层d及下采样参数梯度，不更新参数
+// 完整反传后，结合缓存求卷积/全连接参数梯度并执行SGD；inputData须为同一样本。
 void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData);
 void cnnclear(CNN* cnn); // 清空中间结果和局部梯度，不清权重、偏置和损失曲线
 

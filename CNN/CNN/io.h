@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// size是单个元素字节数，count是元素数；buffer至少容纳size*count字节。
 // 按fread的size/count语义读取；短读或错误直接退出，数据含义由调用方校验。
 static inline void read_exact(void *buffer, size_t size, size_t count, FILE *fp)
 {

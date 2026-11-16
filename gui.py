@@ -21,6 +21,7 @@ def prepare_pixels(pixels):
 class DigitApp:
     def __init__(self, window):
         self.window = window
+        # 像素与画布格子均按y*28+x索引；画板只写0/255，C接口也可接收中间灰度。
         self.pixels = bytearray(GRID * GRID)
         self.last = None
         self.busy = False
@@ -153,7 +154,8 @@ class DigitApp:
     def show_scores(self, scores, best=None):
         self.chart.delete('all')
         self.chart.create_line(0, 92, 470, 92, fill='#cccccc')
-        # 距离不再受tanh范围限制；按本次最大距离缩放柱高。
+        # 距离是84项平方差之和，不是单个tanh输出；柱高按本次最大距离归一化。
+        # 该缩放只影响显示，不转换为概率；不同次识别的柱高不能直接比较。
         maximum = max(max(scores, default=0), 1)
         for i, score in enumerate(scores):
             x = 10 + i * 46
@@ -180,6 +182,7 @@ class DigitApp:
         if not model.is_file():
             messagebox.showerror('模型不存在', f'找不到模型文件：\n{model}')
             return
+        # pixels已复制成不可变bytes；锁定画板和模型选择，避免结果对应到另一幅图。
         self.set_busy(True)
         self.status.set('正在调用 C 模型识别…')
         self.answer.set('—')

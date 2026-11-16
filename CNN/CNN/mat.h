@@ -26,7 +26,8 @@ void addmat(float** res, float** mat1, nSize matSize1, float** mat2, nSize matSi
 
 float** correlation(float** map,nSize mapSize,float** inputData,nSize inSize,int type);// 互相关
 
-float** cov(float** map,nSize mapSize,float** inputData,nSize inSize,int type); // 卷积操作
+// 数学卷积：先旋转map再互相关；不能仅在前向删除翻转而保持反传公式不变。
+float** cov(float** map,nSize mapSize,float** inputData,nSize inSize,int type);
 
 // 按列复制upc次、按行复制upr次；仅复制数值，不乘池化系数或激活导数。
 float** UpSample(float** mat,nSize matSize,int upc,int upr);

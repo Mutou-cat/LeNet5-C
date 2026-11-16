@@ -6,6 +6,7 @@
  * 不是原始源码字模的逐位复刻。空白为背景，#为笔画，逐行展平。
  * 参考来源及与原训练流程的差异见README。模板固定，不参与梯度更新。
  */
+// 每行额外的第8字节存字符串结束符，展平84维时不会读取它。
 static const char digit_codes[RBF_CLASSES][RBF_ROWS][RBF_COLS+1]={
     {"       ","  ###  "," #   # "," #   # "," #   # "," #   # ",
      " #   # "," #   # "," #   # ","  ###  ","       ","       "},
@@ -72,7 +73,10 @@ double rbfloss(const RbfLayer* layer,int target)
     return (layer->y[target]-minimum)+log(sum);
 }
 
-// 先求dL/dD[j]=one_hot[j]-p[j]，再经平方距离对F6输出求导；不更新模板。
+/* p[j]=exp(-D[j])/(exp(-J)+sum exp(-D))，这里归一化还包含固定背景项exp(-J)。
+ * dL/dD[j]=one_hot[j]-p[j]；符号与以logit为输入的交叉熵不同，因为这里是距离。
+ * dD[j]/dx[k]=2*(x[k]-center[j,k])，链式法则求dx；中心固定，不更新模板。
+ */
 void rbfbp(RbfLayer* layer,const float input[RBF_INPUTS],int target,float dx[RBF_INPUTS])
 {
     assert(target>=0 && target<RBF_CLASSES);

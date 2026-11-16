@@ -9,6 +9,12 @@
 #include <time.h>
 #include "cnn.h"
 
+/* 阅读约定：x为本层输入，z为加偏置后的线性结果，y=f(z)。
+ * 卷积/全连接层的d是当前样本的dL/dz，不是参数，也不是参数更新量。
+ * 前向顺序：C1 -> S2 -> C3 -> S4 -> C5 -> F6 -> O7；反传顺序相反。
+ * cnnbp先传播局部梯度；cnnapplygrads再结合缓存的输入求参数梯度并执行SGD。
+ */
+
 // LeNet-5论文Table I：每行对应一个C3输出通道，列出其S2输入通道。
 // 位k=1表示连接输入通道k；输出0..5连3路，6..14连4路，15连6路。
 static const unsigned char c3_connections[16]={
@@ -70,6 +76,7 @@ void cnnsetup(CNN* cnn,nSize inputSize,int outputSize)
 	cnn->S2=initPoolLayer(inSize.c,inSize.r,2,6,6);
 	inSize.c=inSize.c/2;
 	inSize.r=inSize.r/2;
+	// 位掩码按输出通道组织，运行时转换为[输入*16+输出]的一维连接表。
 	bool connections[6*16];
 	for(int i=0;i<6;i++)
 		for(int j=0;j<16;j++)
@@ -502,6 +509,7 @@ static void training_log(FILE* log,const char* format,...)
 	va_end(args);
 	fflush(stdout);
 	if(log) {
+		// vprintf已经消费过变参列表，写日志前须重新va_start。
 		va_start(args,format);
 		int result=vfprintf(log,format,args);
 		va_end(args);
@@ -511,6 +519,7 @@ static void training_log(FILE* log,const char* format,...)
 
 void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int trainNum,FILE* log)
 {
+	// 计时覆盖本函数内的计算与日志I/O，不包含调用前读数据、初始化和调用后存模型。
 	double training_start=training_seconds();
 	time_t now=time(NULL);
 	char started[80]="unknown";
@@ -533,13 +542,13 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 			cnnff(cnn,inputData->ImgPtr[n].ImgData);  // 缓存当前样本各层输出和RBF距离
 			// 在更新与清空缓存之前取损失，确保日志对应本次前向结果。
 			double l=cnnloss(cnn,outputData->LabelPtr[n].LabelData);
-			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 计算所有层梯度，使用尚未更新的权重
+			cnnbp(cnn,outputData->LabelPtr[n].LabelData); // 用旧权重计算各层d及下采样参数梯度
 
 
-			cnnapplygrads(cnn,opts,inputData->ImgPtr[n].ImgData); // 更新权重
+			cnnapplygrads(cnn,opts,inputData->ImgPtr[n].ImgData); // 求卷积/全连接参数梯度，更新全部可训练参数
 
 			cnnclear(cnn);
-			// 显示与反向传播一致的MAP损失，保留指数平滑。
+			// 平滑值仅用于观察趋势，不是整轮平均损失，也不参与反向传播。
 			if(n==0)
 				cnn->L[n]=(float)l;
 			else
@@ -561,7 +570,10 @@ void cnntrain(CNN* cnn,	ImgArr inputData,LabelArr outputData,CNNOpts opts,int tr
 		elapsed,seconds/3600,seconds/60%60,seconds%60);
 }
 
-// C5覆盖S4的整个5×5空间。直接用反向下标做数学卷积，避免临时旋转数组。
+/* C5覆盖S4的整个5×5空间，当前每个输出通道只有一个z。
+ * 数学卷积：z[o,r,c]=b[o]+sum_{i,a,b} W[i,o,a,b]*x[i,r+K-1-a,c+K-1-b]。
+ * 将翻转体现在输入下标上，与cov中旋转核等价，避免创建临时矩阵。
+ */
 static void c5ff(CNN* cnn)
 {
 	CovLayer* layer=cnn->C5;
@@ -610,7 +622,7 @@ void cnnff(CNN* cnn,float** inputData)
 	// S2：窗口求和、乘每通道系数、加偏置、缩放tanh。
 	poolff(cnn->S2,cnn->C1->y);
 
-	// C3部分连接：仅汇总连接表中指定的S2通道。
+	// C3：14×14×6 -> 10×10×16；先累加相连通道的卷积，再加一次偏置并激活。
 	outSize.c=cnn->S4->inputWidth;
 	outSize.r=cnn->S4->inputHeight;
 	inSize.c=cnn->C3->inputWidth;
@@ -633,7 +645,7 @@ void cnnff(CNN* cnn,float** inputData)
 			}
 	}
 
-	// S4采用与S2相同的可训练下采样。
+	// S4：10×10×16 -> 5×5×16；C5随后变为1×1×120。
 	poolff(cnn->S4,cnn->C3->y);
 	c5ff(cnn);
 	outSize.c=cnn->C5->inputWidth-cnn->C5->mapSize+1;
@@ -651,10 +663,11 @@ void cnnff(CNN* cnn,float** inputData)
 	for(i=0;i<cnn->F6->outputNum;i++)
 		cnn->F6->y[i]=activation_Sigma(cnn->F6->v[i]);
 	free(F6inData);
+	// O7将84维特征与10个固定模板比较，输出10个距离，最小者为预测类别。
 	rbfff(&cnn->O7,cnn->F6->y);
 }
 
-// 只负责激活；z是调用方已经加好偏置的结果。
+// Sigma是沿用的函数名；当前实现是缩放tanh，不是早期的Logistic sigmoid。
 float activation_Sigma(float z) // LeNet-5缩放tanh激活函数
 {
 	const float A=1.7159f;
@@ -670,6 +683,7 @@ void poolff(PoolLayer* pool,float*** input)
 	for(int i=0;i<pool->outChannels;i++)
 		for(int r=0;r<height;r++)
 			for(int c=0;c<width;c++) {
+				// 输出(r,c)对应输入窗口左上角(r*K,c*K)，窗口之间不重叠。
 				float sum=0.0f;
 				for(int dr=0;dr<pool->mapSize;dr++)
 					for(int dc=0;dc<pool->mapSize;dc++)
@@ -706,10 +720,14 @@ float sigma_derivation(float y){ // 缩放tanh对激活前输入z的导数
 	const float A=1.7159f;
 	const float S=2.0f/3.0f;
 	float t=y/A; // 参数y是激活后的输出：y=A*tanh(S*z)
+	// dy/dz=A*S*(1-tanh(S*z)^2)，由缓存的y恢复tanh，无需重算z。
 	return A*S*(1.0f-t*t);
 }
 
-// 调用前d是dL/dy，调用后d是dL/dz；每个样本重新计算参数梯度。
+/* 调用前d是dL/dy，调用后d是dL/dz；每个样本只调用一次，不能重复乘激活导数。
+ * z=a*s+b，其中s为窗口和：dL/da=sum_{r,c}(d*s)，dL/db=sum_{r,c}d。
+ * a、b在同一通道内共享，因此累加所有空间位置；输入梯度a*d由cnnbp继续传递。
+ */
 void poolbp(PoolLayer* pool)
 {
 	int width=pool->inputWidth/pool->mapSize;
@@ -742,7 +760,11 @@ double cnnloss(const CNN* cnn,const float* outputData)
 	return rbfloss(&cnn->O7,target);
 }
 
-void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
+/* 当前样本必须已完成cnnff；所有累加缓冲在该样本开始前应为0。
+ * 此函数求各层局部梯度及S2/S4的参数梯度，不求原始图片梯度。
+ * C1/C3/C5/F6的权重、偏置梯度在cnnapplygrads中用这些d和前向输入计算。
+ */
+void cnnbp(CNN* cnn,float* outputData) // 网络的反向传播
 {
 	int i,j,c,r;
 	int target=vecmaxIndex(outputData,RBF_CLASSES);
@@ -751,7 +773,9 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	for(i=0;i<cnn->F6->outputNum;i++)
 		cnn->F6->d[i]*=sigma_derivation(cnn->F6->y[i]);
 
-	// F6 -> C5：先算dL/d(C5.y)，再乘C5的激活导数得到dL/d(C5.z)。
+	// F6 -> C5：z_F6[j]=sum_k W[j,k]*y_C5[k]+b[j]。
+	// 因此dL/dy_C5[k]=sum_j F6.d[j]*W[j,k]；再乘f'(z_C5[k])。
+	// k与前向展平顺序一致；每个C5输出收到全部84个F6神经元的贡献。
 	nSize outSize={cnn->C5->inputWidth-cnn->C5->mapSize+1,
 		cnn->C5->inputHeight-cnn->C5->mapSize+1};
 	for(i=0;i<cnn->C5->outChannels;i++)
@@ -764,7 +788,9 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 				cnn->C5->d[i][r][c]=dy*sigma_derivation(cnn->C5->y[i][r][c]);
 			}
 
-	// C5 -> S4：按前向的连接位置散加梯度，尚未乘S4激活导数。
+	// C5 -> S4：前向中某个x乘了W，反向就向该x的位置累加C5.d*W。
+	// 这里使用与c5ff完全相同的翻转下标；累加120个输出通道的贡献。
+	// 此时S4.d仍是dL/d(S4.y)，后面的poolbp才将其变成dL/d(S4.z)。
 	for(i=0;i<cnn->C5->inChannels;i++)
 		for(j=0;j<cnn->C5->outChannels;j++) {
 			if(!covConnected(cnn->C5,i,j)) continue;
@@ -794,6 +820,10 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 
 	// S2层：先累加dL/dy，再反传其缩放tanh。
 	// 只沿C3的60组有效通道连接，将梯度传回S2。
+	// 前向z[r,c]=sum W[a,b]*x[r+K-1-a,c+K-1-b]，对x[u,v]求导得到
+	// dx[u,v]=sum W[a,b]*d[u-K+1+a,v-K+1+b]（越界d视为0）。
+	// 这正是下面的full互相关，不应再次翻转核；10+5-1=14。
+	// 单次corr为14×14，一个S2通道还须累加所有与它相连的C3输出通道。
 	outSize.c=cnn->C3->inputWidth;
 	outSize.r=cnn->C3->inputHeight;
 	nSize inSize={cnn->S4->inputWidth,cnn->S4->inputHeight};
@@ -824,12 +854,13 @@ void cnnbp(CNN* cnn,float* outputData) // 网络的后向传播
 	}
 }
 
-void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
+void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 计算参数梯度并更新权重、偏置及下采样系数
 {
 	// 所有d已用旧权重算完，再执行w-=alpha*dL/dw；更新C1/C3/C5/F6和S2/S4，RBF固定。
 	int i,j,r,c;
 
 	// C1的共享权重梯度累加所有输出位置：g[a][b]=sum(d[r][c]*x[r+K-1-a][c+K-1-b])。
+	// 这里历史代码写成{高,宽}，仅因当前图片/特征图均为正方形才等价于{宽,高}。
 	nSize dSize={cnn->S2->inputHeight,cnn->S2->inputWidth};
 	nSize ySize={cnn->C1->inputHeight,cnn->C1->inputWidth};
 	nSize mapSize={cnn->C1->mapSize,cnn->C1->mapSize};
@@ -837,7 +868,9 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 	for(i=0;i<cnn->C1->outChannels;i++){
 		for(j=0;j<cnn->C1->inChannels;j++){
 			if(!covConnected(cnn->C1,j,i)) continue;
-			// cov内部还会旋转d；这里旋转输入，以得到原始存储方向上的核梯度。
+			// 以28×28的d作核、32×32的旋转输入作图，valid结果为5×5权重梯度。
+			// cov再旋转d，换元后恰为上面的sum(d*x)公式，结果按原W[a][b]方向排列。
+			// 两次旋转不是互相抵消；若直接对未翻转的x和d做相关，核梯度方向会不同。
 			float** flipinputData=rotate180(inputData,ySize);
 			float** C1dk=cov(cnn->C1->d[i],dSize,flipinputData,ySize,valid);
 			// C1dk从梯度变为参数增量-alpha*g，再加回权重。
@@ -898,7 +931,8 @@ void cnnapplygrads(CNN* cnn,CNNOpts opts,float** inputData) // 更新权重
 		cnn->C5->basicData[i]-=opts.alpha*summat(cnn->C5->d[i],C5out);
 	}
 
-	// F6权重梯度为d乘C5输出，偏置梯度就是d。
+	// F6：dL/dW[j,k]=F6.d[j]*C5.y[k]，dL/db[j]=F6.d[j]。
+	// 虽然C5权重已更新，此处仍使用本次前向缓存的旧C5.y，不重新前向。
 	for(j=0;j<cnn->F6->outputNum;j++) {
 		for(i=0;i<cnn->C5->outChannels;i++)
 			for(r=0;r<C5out.r;r++)
